@@ -1,0 +1,11 @@
+{
+	"name": "idle-var",
+	"group": "IdleVar",
+	"duration": 2.5,
+	"fps": 30,
+	"fadeIn": 0.2,
+	"fadeOut": 0.3,
+	"curves": [
+		{ "id": "ParamAngleZ", "shape": { "type": "sine", "amp": 5, "cycles": 1, "phase": -60 } }
+	]
+}

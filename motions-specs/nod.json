@@ -1,0 +1,12 @@
+{
+	"name": "nod",
+	"group": "TapBody",
+	"duration": 1.2,
+	"fps": 30,
+	"fadeIn": 0.05,
+	"fadeOut": 0.2,
+	"curves": [
+		{ "id": "ParamAngleY", "shape": { "type": "damped", "amp": 16, "cycles": 2, "phase": -90, "decay": 1.8 } },
+		{ "id": "ParamAngleX", "shape": { "type": "damped", "amp": 4, "cycles": 2, "phase": -90, "decay": 2.2 } }
+	]
+}

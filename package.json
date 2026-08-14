@@ -1,0 +1,45 @@
+{
+  "name": "dsh-pet",
+  "version": "0.1.0",
+  "description": "Desktop-pet companion for the DSH web GUI: hatch Codex-compatible sprite pets from an image, render them in the shell.overlay slot, and react to session state.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/client.js.map",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build:client": "node scripts/build-client.mjs",
+    "build:sample-source": "node scripts/make-sample-source.mjs",
+    "build:sample-pet": "node .dsh/skills/pet-hatch/build-atlas.mjs --source sample-source.png --name dsh-kitten --display-name \"DSH Kitten\" --description \"A tiny pixel kitten that watches you code.\" --out sample-pet --format webp",
+    "build:all": "node scripts/make-sample-source.mjs && node .dsh/skills/pet-hatch/build-atlas.mjs --source sample-source.png --name dsh-kitten --display-name \"DSH Kitten\" --description \"A tiny pixel kitten that watches you code.\" --out sample-pet --format webp && node scripts/build-client.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.10",
+    "puppeteer-core": "^25.6.0",
+    "sharp": "^0.34.0",
+    "url": "^0.11.4"
+  },
+  "license": "MIT",
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "sharp@0.34.5": true
+  }
+}

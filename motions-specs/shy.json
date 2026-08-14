@@ -1,0 +1,14 @@
+{
+	"name": "shy",
+	"group": "Shy",
+	"duration": 1.4,
+	"fps": 30,
+	"fadeIn": 0.1,
+	"fadeOut": 0.3,
+	"curves": [
+		{ "id": "ParamEyeLOpen", "shape": { "type": "pulse", "base": 1, "peak": 0.25, "rise": 0.35, "fall": 0.8 } },
+		{ "id": "ParamEyeROpen", "shape": { "type": "pulse", "base": 1, "peak": 0.25, "rise": 0.35, "fall": 0.8 } },
+		{ "id": "ParamAngleX", "shape": { "type": "ramp", "from": 0, "to": -8, "start": 0.1, "end": 0.6 } },
+		{ "id": "ParamAngleY", "shape": { "type": "ramp", "from": 0, "to": -6, "start": 0.1, "end": 0.6 } }
+	]
+}

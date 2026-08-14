@@ -1,0 +1,10 @@
+# dsh-pet bundle patch — the composition layer this package contributes when
+# installed as a profile bundle (`dsh plugin --profile web add dsh-pet`).
+#
+# One row: the host plugin (serves /api/pets) — and through the same row its
+# browser half, because the client-modules scanner turns every enabled row
+# whose package declares `dsh.client` into a window.__DSH_BOOT__ entry.
+- insert:
+    - id: dsh-pet
+      name: 'dsh-pet'
+      inject: [webServer]

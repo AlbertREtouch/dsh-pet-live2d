@@ -1,0 +1,15 @@
+{
+	"name": "drowse",
+	"group": "Drowse",
+	"duration": 6,
+	"fps": 30,
+	"loop": true,
+	"fadeIn": 0.5,
+	"fadeOut": 0.5,
+	"curves": [
+		{ "id": "ParamEyeLOpen", "shape": { "type": "keys", "keys": [[0, 1], [1.5, 0.15], [5, 0.15], [6, 1]] } },
+		{ "id": "ParamEyeROpen", "shape": { "type": "keys", "keys": [[0, 1], [1.5, 0.15], [5, 0.15], [6, 1]] } },
+		{ "id": "ParamAngleX", "shape": { "type": "ramp", "from": 0, "to": -6, "start": 0, "end": 2.5 } },
+		{ "id": "ParamBreath", "shape": { "type": "sine", "base": 0.3, "amp": 0.25, "cycles": 2 } }
+	]
+}

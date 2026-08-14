@@ -1,0 +1,11 @@
+{
+	"name": "shake",
+	"group": "Sad",
+	"duration": 1.4,
+	"fps": 30,
+	"fadeIn": 0.05,
+	"fadeOut": 0.25,
+	"curves": [
+		{ "id": "ParamAngleX", "shape": { "type": "damped", "amp": 20, "cycles": 3, "phase": 0, "decay": 2.2 } }
+	]
+}

@@ -1,0 +1,9 @@
+node_modules/
+lib/client.raw.js
+lib/client.raw.js.map
+lib/client-dsh-pet*.js
+lib/client-dsh-pet*.js.map
+*.err
+dump-config*.txt
+.tmp-*
+System.Management.Automation.*

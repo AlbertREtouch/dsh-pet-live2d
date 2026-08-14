@@ -1,0 +1,6 @@
+{
+  "id": "dsh-kitten",
+  "displayName": "DSH Kitten",
+  "description": "A tiny pixel kitten that watches you code.",
+  "spritesheetPath": "spritesheet.webp"
+}
