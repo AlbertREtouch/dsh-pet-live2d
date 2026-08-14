@@ -38,7 +38,6 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ANKO_DIR = join(process.env.DSH_HOME ?? join(homedir(), ".dsh"), "pets", "anko");
 
 /** Live2D-standard parameter range conventions (cdi3 files often omit them). */
 const RANGE_PATTERNS = [
@@ -189,13 +188,15 @@ const { values, positionals } = parseArgs({
 		out: { type: "string" },
 		apply: { type: "boolean", default: false },
 		cdi: { type: "string" },
+		pet: { type: "string" },
+		model3: { type: "string" },
 	},
 	allowPositionals: true,
 });
 
 const specPath = positionals[0];
 if (specPath === undefined) {
-	console.error("usage: motion-gen.mjs <spec.json> --out <dir> [--apply] [--cdi <cdi3.json>]");
+	console.error("usage: motion-gen.mjs <spec.json> --out <dir> [--apply] [--pet <id>] [--model3 <文件名>] [--cdi <cdi3.json>]");
 	process.exit(64);
 }
 const spec = JSON.parse(readFileSync(resolve(specPath), "utf8"));
@@ -208,7 +209,11 @@ if (typeof spec.duration !== "number" || spec.duration <= 0) {
 	process.exit(64);
 }
 
-const cdiPath = resolve(values.cdi ?? join(ANKO_DIR, "352.cdi3.json"));
+const petId = values.pet ?? "anko";
+const model3Name = values.model3 ?? "352.model3.json";
+const petDir = join(process.env.DSH_HOME ?? join(homedir(), ".dsh"), "pets", petId);
+
+const cdiPath = resolve(values.cdi ?? join(petDir, model3Name.replace(/\.model3\.json$/, ".cdi3.json")));
 if (!existsSync(cdiPath)) {
 	console.error(`error: cdi3 not found at ${cdiPath} (pass --cdi)`);
 	process.exit(66);
@@ -223,12 +228,12 @@ writeFileSync(motionPath, JSON.stringify(motion, null, "\t") + "\n");
 console.log(`motion written: ${motionPath} (${motion.Curves.length} curves, ${motion.Meta.TotalSegmentCount} segments, ${motion.Meta.Duration}s${motion.Meta.Loop ? ", loop" : ""})`);
 
 if (values.apply) {
-	const motionsDir = join(ANKO_DIR, "motions");
+	const motionsDir = join(petDir, "motions");
 	mkdirSync(motionsDir, { recursive: true });
 	const installed = join(motionsDir, `${spec.name}.motion3.json`);
 	writeFileSync(installed, JSON.stringify(motion, null, "\t") + "\n");
 	const group = spec.group ?? "Custom";
-	const model3Path = join(ANKO_DIR, "352.model3.json");
+	const model3Path = join(petDir, model3Name);
 	const model3 = JSON.parse(readFileSync(model3Path, "utf8"));
 	const refs = (model3.FileReferences ??= {});
 	const motions = (refs.Motions ??= {});
@@ -238,5 +243,5 @@ if (values.apply) {
 	if (existing >= 0) list[existing] = entry;
 	else list.push(entry);
 	writeFileSync(model3Path, JSON.stringify(model3, null, "\t") + "\n");
-	console.log(`installed to anko motions group "${group}" and patched 352.model3.json`);
+	console.log(`installed to pet "${petId}" motions group "${group}" and patched ${model3Name}`);
 }
