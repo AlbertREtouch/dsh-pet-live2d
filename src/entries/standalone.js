@@ -49,22 +49,50 @@ export function mount(options = {}) {
 		probe = consoleProbe,
 		personality = undefined,
 		stateSource = null,
+		selectedPetId = null,
+		onPetChange = null,
 	} = options;
 	const source = stateSource ?? createMockStateSource();
 	const disposeCss = injectCss();
 	const root = createRoot(target);
-	root.render(createElement(PetOverlay, {
-		stateSource: source,
-		fetchPets: createFetchPets(assetBase, fetchPets),
-		probe,
-		assetBase,
-		personality,
-	}));
-	return () => {
+	let currentPetId = typeof selectedPetId === "string" && selectedPetId.length > 0 ? selectedPetId : null;
+	let disposed = false;
+
+	const handlePetChange = (id) => {
+		currentPetId = id;
+		onPetChange?.(id);
+	};
+
+	const render = () => {
+		root.render(createElement(PetOverlay, {
+			stateSource: source,
+			fetchPets: createFetchPets(assetBase, fetchPets),
+			probe,
+			assetBase,
+			personality,
+			selectedPetId: currentPetId,
+			onPetChange: handlePetChange,
+		}));
+	};
+
+	render();
+
+	// Backward-compatible dispose function, extended with the desktop-shell
+	// controls used by standalone.html (Electron tray skin switching).
+	const unmount = () => {
+		if (disposed) return;
+		disposed = true;
 		root.unmount();
 		source.dispose?.();
 		disposeCss();
 	};
+	unmount.selectPet = (id) => {
+		if (disposed) return;
+		currentPetId = typeof id === "string" && id.length > 0 ? id : null;
+		render();
+	};
+	unmount.getCurrentPet = () => currentPetId;
+	return unmount;
 }
 
 export const standalone = { mount };

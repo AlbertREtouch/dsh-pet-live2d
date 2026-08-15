@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH Pet</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
+#pet-root{position:fixed;inset:0}
+</style>
+</head>
+<body>
+<div id="pet-root"></div>
+<!--
+  Standalone page shared by the dev preview server (scripts/dev-standalone.mjs)
+  and the Electron shell. `assetBase` can come from:
+    1. ?assetBase=<url>   (Electron injects the in-process server port)
+    2. window.dshPetDesktop (reserved for future preload-provided config)
+    3. the default dev-server port below.
+-->
+<script src="./lib/standalone.js"></script>
+<script>
+(() => {
+	const params = new URLSearchParams(window.location.search);
+	const bridge = window.dshPetDesktop ?? null;
+	const assetBase =
+		params.get("assetBase") ??
+		bridge?.config?.assetBase ??
+		"http://127.0.0.1:3410/api";
+	const initialPetId = params.get("dsh-pet");
+
+	const api = PetStandalone.mount({
+		target: document.getElementById("pet-root"),
+		assetBase,
+		selectedPetId: initialPetId !== null && initialPetId.length > 0 ? initialPetId : null,
+		onPetChange: (id) => {
+			window.__dshPetCurrentId = id;
+			bridge?.reportPet(id);
+		},
+	});
+	window.__dshPetApi = api;
+	bridge?.onSelectPet((id) => api.selectPet(id));
+
+	// Click-through hit-testing: the Electron window ignores the mouse unless
+	// the pointer is over an interactive pet surface. `forward` keeps these
+	// mousemove events flowing even while ignored.
+	if (bridge !== null) {
+		let interactive = null;
+		document.addEventListener("mousemove", (event) => {
+			const target = event.target;
+			const onInteractive =
+				target instanceof Element &&
+				target.closest(".dsh-pet, .dsh-pet-hint, .dsh-pet-debug-tab, .dsh-pet-debug-panel") !== null;
+			if (onInteractive !== interactive) {
+				interactive = onInteractive;
+				bridge.setIgnoreMouse(!onInteractive);
+			}
+		});
+	}
+})();
+</script>
+</body>
+</html>

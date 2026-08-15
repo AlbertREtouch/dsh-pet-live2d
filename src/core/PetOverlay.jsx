@@ -122,7 +122,15 @@ function moodDurationMs(moodState) {
 	return (frames / fps) * 1000 + 500;
 }
 
-export function PetOverlay({ stateSource, fetchPets, probe = () => {}, assetBase = "/api", personality = DEFAULT_PERSONALITY }) {
+export function PetOverlay({
+	stateSource,
+	fetchPets,
+	probe = () => {},
+	assetBase = "/api",
+	personality = DEFAULT_PERSONALITY,
+	selectedPetId = null,
+	onPetChange = null,
+}) {
 	class RenderBoundary extends Component {
 		constructor(props) {
 			super(props);
@@ -196,6 +204,27 @@ export function PetOverlay({ stateSource, fetchPets, probe = () => {}, assetBase
 				}
 			}
 		}, [pet, selected]);
+
+		// External skin switch (Electron tray menu / standalone hosts): the
+		// host keeps the authoritative id in a prop; DSH never passes it and
+		// is therefore unaffected. Only honor ids that actually exist in the
+		// catalog — a stale menu entry must not fight the fallback selection.
+		useEffect(() => {
+			if (typeof selectedPetId !== "string" || selectedPetId.length === 0 || selectedPetId === selected) return;
+			if (!pets.some((candidate) => candidate.id === selectedPetId)) return;
+			setSelected(selectedPetId);
+			try {
+				localStorage.setItem(STORAGE_PET, selectedPetId);
+			} catch {
+				/* ignore */
+			}
+		}, [selectedPetId, selected, pets]);
+
+		// Report which pet actually got mounted (fallback selection included)
+		// so the Electron shell can check the matching tray menu item.
+		useEffect(() => {
+			if (typeof onPetChange === "function" && pet !== null) onPetChange(pet.id);
+		}, [pet === null ? null : pet.id, onPetChange]);
 
 		// Keep the initial position in view (bottom-right, 16px margin).
 		useEffect(() => {
