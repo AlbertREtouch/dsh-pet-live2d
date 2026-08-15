@@ -101,7 +101,7 @@ interface PetStateSource {
 
 ### Phase 1：独立宠物（双击图标即开）
 - Electron 壳：主进程内挂 `createPetServer`（绑 127.0.0.1），渲染进程加载 standalone bundle，模拟状态源驱动。
-- 皮肤运行时可切换（菜单/托盘）；与性格解耦。
+- 皮肤运行时可切换（菜单/托盘）；与性格解耦。（2026-08-15 追加：托盘提供 **Live2D 参数试驾台** 开关，通用 cdi3 路径 + assetBase 注入。）
 - electron-builder 打包安装包/便携版。
 - 发布形态：`exports["./server"]`、`exports["./standalone"]`，`files` 补 server/standalone/壳入口。
 - 里程碑：不装 DSH 也能双击打开活宠物。
@@ -117,6 +117,9 @@ interface PetStateSource {
 ### Phase 3：多状态源 + 性格预设
 - 状态源注册表配置化，优先级默认：DSH failed > 任一源 running > waiting > review > idle。
 - 性格预设（preset 文件）可切换、可新增，内核不变。
+  - **预设目录（2026-08-15 已确认设计）**：`~/.dsh/pet-personalities/<id>.json`（`DSH_PET_PERSONALITY_DIR` 可覆盖）；schema v1 与内置 `DEFAULT_PERSONALITY` 同构：`{version, id, displayName, interactions{click,contextMenu}, stateMapping, bubbles}`；未知字段透传、非法文件忽略并诊断。
+  - 托盘"性格"菜单扫描预设目录 → radio 选择 → **实时热加载**，不改内核、不重启。
+  - **快捷生成（2026-08-15 已确认，实施推后）**：托盘"性格 → 另存为新预设"，以当前内置/选中预设为模板生成合法 JSON 到上述目录；实施放 Phase 3b，与 preset 文件热加载一起做。
 - Codex 适配器候选：`CODEX_HOME` 会话文件/进程状态。
 
 ## 7. 关键踩坑结论（不可回退的知识）

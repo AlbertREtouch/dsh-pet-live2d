@@ -525,3 +525,27 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 - [ ] 用户试运行 `npm run electron`（或双击 dist 产物）确认交互手感
 - [ ] 用户确认后 `sl pr submit --stack`（Phase 0 栈 + 本批提交）
 - [ ] 批准后同步进 `PROJECT.md` 路线图 Phase 1 状态并标记本条目"已同步"
+
+---
+
+## [2026-08-15 05:30] Phase 1 追加：托盘试驾台 + 性格快捷生成设计 — 已确认
+
+> 用户实测右键"出错了"后确认这是内置性格的预期行为（右键 = failed/Sad）。随后拍板两件事：**试驾台进托盘（现在做）**、**性格快捷生成只补设计（Phase 3b 实施）**。
+
+### A. 托盘试驾台（已实现并验证）
+
+1. **链路**：托盘菜单新增 "Live2D 参数试驾台" checkbox → main 发 `dsh-pet:set-debug` → preload `onSetDebug` → `PetStandalone.mount` 的 `setDebugPanel()` 重渲染 → `PetOverlay.debugPanel` → `PetLive2D` 显示面板；关闭同理。
+2. **修掉两处硬编码**：`DebugPanel` 不再写死 `/api/pets/...` 与 `352.cdi3.json`——从 `pet.model` 推导 `*.cdi3.json`（`foo.model3.json` → `foo.cdi3.json`），并注入 `assetBase`；对其他 Live2D 模型也通用。
+3. **验证**：`e2e-electron` 在真实宠物目录下选中 anko → `switchedKind=live2d` → 托盘开关打开/关闭时 `cockpitToggled=true`；DSH 侧 `e2e-live2d`（试驾台滑杆/override/视觉响应）仍全 PASS。
+
+### B. 性格快捷生成设计（已写入 PROJECT.md Phase 3，实施推后）
+
+- 预设目录：`~/.dsh/pet-personalities/<id>.json`，`DSH_PET_PERSONALITY_DIR` 可覆盖。
+- schema v1 与内置 `DEFAULT_PERSONALITY` 同构：`{version, id, displayName, interactions, stateMapping, bubbles}`；未知字段透传，非法文件忽略 + 诊断。
+- 托盘"性格"菜单：扫描预设目录 → radio 切换 → 实时热加载；"另存为新预设"以当前预设为模板生成 JSON（Phase 3b 与热加载一起做）。
+
+### C. 待办
+
+- [ ] Phase 1 最终验收（用户手动按测试清单过一遍）
+- [ ] 验收通过后同步 PROJECT.md §2/§6 Phase 1 状态并标记本批条目"已同步"
+- [ ] 推送 PR（`sl pr submit --stack`，等用户确认）
