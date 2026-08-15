@@ -485,3 +485,43 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 - `npm audit` 报 3 个漏洞（1 high 2 critical，来自依赖树），Phase 1 加依赖时一并评估。
 - `test-resolvemeta.mjs` 还是探索脚本（硬编码 `C:\Users\Yilun`），要么改成参数化要么标废弃。
 - 实机调试经验：DSH 页面在 headless Edge 冷 profile 下 `Page.enable`/`evaluate` 可能长时间超时，先做 A/B（移除插件条目）再归因，不要直接怀疑环境。
+
+---
+
+## [2026-08-15 05:10] Phase 1 实施完成（Electron 独立宠物） — 已确认
+
+> 新会话按 `PROJECT.md` 路线图 + 21:33 交接条目实施 Phase 1。全部代码已落地，本地测试 + Electron e2e + 两个 DSH 实机回归全绿，安装包/便携版均已产出。
+
+### 已完成
+
+1. **Electron 壳**（`electron/main.cjs` + `preload.cjs` + `tray.png`）：
+   - 主进程内 `createPetServer` 绑 `127.0.0.1:<随机空闲端口>`；渲染层用同一端口 `assetBase` 加载 standalone 页面。
+   - 窗口 = 主显示器工作区全尺寸、frameless/transparent/always-on-top/skipTaskbar/focusable:false；**鼠标点击穿透**，renderer 通过 preload IPC 在指针进入 `.dsh-pet`/hint/debug 区域时临时恢复交互（`setIgnoreMouseEvents(true,{forward:true})`）。
+   - 托盘菜单：显示/隐藏、**皮肤切换**（radio 列表 + 刷新）、性格（内置"经典"）、退出；关闭窗口 = 隐藏到托盘，退出绝不涉及任何 DSH 进程。
+   - 单实例锁；preload 只暴露 `onSelectPet`/`setIgnoreMouse`/`reportPet` 三个窄接口，contextIsolation + sandbox。
+2. **皮肤切换闭环**：`PetOverlay` 新增可选 `selectedPetId`（受控覆盖，只接受目录里存在的 id，防过期菜单条目与回落选择打架）+ `onPetChange`；`standalone.js` 的 `mount` 返回 `unmount`（保持可调用）并扩展 `selectPet`/`getCurrentPet`；DSH 路径不传这两个 props，行为零变化。
+3. **standalone 页面正式化**：`standalone.html`（Electron 与 dev 预览共用）；`dev-standalone.mjs` 改为读这个文件并兼容 `/standalone.js` 与 `/lib/standalone.js` 两条路径。
+4. **发布形态**：`exports["./server"]` → `lib/index.js`；`files` 补 `standalone.html`/`electron/`；`build.extraMetadata.main` 指向壳入口（npm 包 `main` 仍为 `lib/index.js`，不破坏 DSH 宿主解析）；electron-builder 配 portable + NSIS（x64，oneClick per-user）。
+5. **测试**：新增 `scripts/e2e-electron.mjs`（临时双宠物目录 → 启动壳 → 校验 `/api/pets`/mount/DOM/皮肤切换；`DSH_PET_E2E_BINARY` 可指 dist 产物）；`scripts/make-tray-icon.mjs` 零依赖生成托盘 PNG。
+
+### 验证结果（全部实测）
+
+- ✅ `smoke-client` / `smoke-standalone` / `test-pet-server` / `test-host-logic`
+- ✅ `e2e-electron`：dev Electron PASS；`dist/win-unpacked/DSH Pet.exe` PASS（`port/pet/catalog/renderer/switchedPet/switchedKind` 全 OK）；用 `DSH_PET_E2E_ROOT=~/.dsh/pets` 实跑真实宠物目录，切到 `anko` 时 `switchedKind=live2d` PASS —— Electron 内 Live2D 皮肤可用
+- ✅ `e2e-sprite`（DSH 实机）PASS；`e2e-live2d`（DSH 实机，anko）PASS —— DSH 路径零回归
+- ✅ electron-builder 产出：`dist/DSH Pet-0.1.0-portable.exe`、`dist/DSH Pet Setup 0.1.0.exe`
+- ✅ `npm pack --dry-run`：12 个文件，含 electron/ 与 standalone.html
+- 说明：portable.exe 是 GUI 启动器（立即返回、stdout 不回流），e2e 脚本对其不适用；壳逻辑以 dev 与 win-unpacked 两次 e2e 为准。
+
+### 环境/工具踩坑（Windows + 沙箱）
+
+- 本机用户级 npm cache（`C:\Users\...\AppData\Local\npm-cache`）不可写：npm 安装要 `--cache <repo>\.npm-cache`，并给 `electron_config_cache=<repo>\.electron-cache` 再 `node node_modules/electron/install.js` 补下二进制。
+- electron-builder 下载 NSIS/winCodeSign 工具用 `ELECTRON_BUILDER_CACHE=<repo>\.electron-builder-cache`（均已加 .gitignore）。
+- electron 43.4.0 / electron-builder 26.15.3；`extraMetadata.main` 实测生效（package.json `main` 保持宿主入口）。
+- electron-builder 提示 author 缺失 + 使用默认 Electron 图标（后续可选补应用图标）。
+
+### 待办
+
+- [ ] 用户试运行 `npm run electron`（或双击 dist 产物）确认交互手感
+- [ ] 用户确认后 `sl pr submit --stack`（Phase 0 栈 + 本批提交）
+- [ ] 批准后同步进 `PROJECT.md` 路线图 Phase 1 状态并标记本条目"已同步"

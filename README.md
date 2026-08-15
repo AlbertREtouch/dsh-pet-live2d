@@ -69,6 +69,25 @@ curl http://127.0.0.1:3080/api/pets/<id>/assets/<file>  # Live2D 模型文件
 # 页面源码里 window.__DSH_BOOT__ 应包含 dsh-pet 行；/plugins/dsh-pet/client.js 应返回 200
 ```
 
+## 独立桌面宠物（Phase 1，Electron）
+
+不装 DSH 也能双击打开一只活宠物：Electron 壳内直接挂 `createPetServer`（只绑 `127.0.0.1`），渲染层加载同一个 standalone bundle，由模拟状态源驱动；皮肤沿用 `~/.dsh/pets` 目录，托盘菜单随时切换。
+
+```bash
+npm install                # 含 electron / electron-builder
+npm run build:client       # standalone bundle 需要 React 打进包里
+npm run electron           # 开发模式：直接起壳（无需浏览器）
+
+npm run pack:dir           # 仅出解包目录 dist/win-unpacked（快速验收）
+npm run pack               # 出便携版 + NSIS 安装包（dist/DSH Pet-0.1.0-*）
+```
+
+- 托盘菜单：显示/隐藏、**皮肤切换**（自动扫描宠物目录）、性格（内置"经典"）、刷新、退出。
+- 窗口全屏透明、鼠标点击穿透；只有指针停在宠物/提示气泡上时才会响应交互。
+- 位置偏好沿用 `localStorage`（`dsh-pet:position` / `dsh-pet:selected`）。
+- 壳是薄封装，不碰 DSH：宠物退出/重启/崩溃天然不会影响任何 harness。
+- 无壳浏览器调试入口：`node scripts/dev-standalone.mjs` → `http://127.0.0.1:3410/`。
+
 ### 卸载
 
 1. 从 `~/.dsh/profiles/web/cordis.patch.yml` 删除 `dsh-pet` 条目（先 `[]` 再删，避免回滚问题）。
@@ -142,6 +161,7 @@ npm run build:client          # esbuild 双目标：DSH bundle（lib/client.js�
 node scripts/smoke-client.mjs # Node 桩环境：DSH bundle 执行 + apply 接线
 node scripts/smoke-standalone.mjs # Node 桩环境：standalone bundle 执行（不依赖 DSH seed table）
 node scripts/test-pet-server.mjs  # createPetServer：目录/图集/穿越/坏 URI/echo 上限/HEAD/junction
+node scripts/e2e-electron.mjs     # Electron 壳 e2e：服务端口/挂载/渲染/皮肤切换；DSH_PET_E2E_BINARY 可指向 dist 产物
 node scripts/e2e-live2d.mjs   # headless Edge 端到端：动作触发/视线/拖拽/试驾台/渲染覆盖率
 node scripts/frame-strip.mjs  # 动作帧条预览
 node scripts/part-analysis.mjs <参数名>  # 参数→组件顶点位移测量
@@ -157,7 +177,9 @@ lib/standalone.js               构建产物：standalone IIFE bundle（React �
 src/client/                     DSH 播放器入口 + Live2D 渲染器（live2d/ 内为必须保留的核心）
 src/core/                       共享内核：PetOverlay / PetStateBus / 性格预设
 src/adapters/                   状态源适配器：dsh / mock
-src/entries/                    standalone 入口（Electron/pet.html 用）
+src/entries/                    standalone 入口（Electron/standalone.html 用）
+electron/                       Electron 壳：main.cjs / preload.cjs / tray.png（薄封装）
+standalone.html                 standalone 共享页面（Electron 壳 + dev-standalone 预览）
 scripts/                        构建与测试工具链
 .dsh/skills/pet-hatch/          pet-hatch skill（SKILL.md + 图集构建器）
 motions-specs/                  动作规格示例 + 参数校准记录示例
