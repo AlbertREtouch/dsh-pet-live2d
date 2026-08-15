@@ -26,13 +26,20 @@ function createFetchPets(assetBase) {
 
 export function apply(ctx) {
 	const stateSource = createDshStateSource(ctx.sessions);
-	const PetOverlay = () => (
-		<PetOverlay stateSource={stateSource} fetchPets={createFetchPets(ASSET_BASE)} probe={probe} assetBase={ASSET_BASE} />
+	// Create the catalog loader ONCE. The slot host may re-render the overlay
+	// component frequently; a fresh function identity per render would restart
+	// the 30s poll effect every time and can spin the shell.
+	const fetchPets = createFetchPets(ASSET_BASE);
+	// NOTE: name this differently from the imported PetOverlay — JSX resolves
+	// lexical names, and shadowing would make <PetOverlay> recurse into this
+	// wrapper forever.
+	const DshPetOverlay = () => (
+		<PetOverlay stateSource={stateSource} fetchPets={fetchPets} probe={probe} assetBase={ASSET_BASE} />
 	);
 
 	ctx.effect(() => {
 		try {
-			const dispose = ctx.slots.register({ name: "shell.overlay", id: "dsh-pet" }, PetOverlay);
+			const dispose = ctx.slots.register({ name: "shell.overlay", id: "dsh-pet" }, DshPetOverlay);
 			probe("mounted", { hasSlots: ctx.slots !== undefined, hasSessions: ctx.sessions !== undefined });
 			return () => dispose();
 		} catch (error) {

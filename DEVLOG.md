@@ -366,9 +366,52 @@ interface PetStateSource {
 - ✅ `scripts/smoke-standalone.mjs`（standalone 不依赖 DSH seed table）
 - ✅ `scripts/test-pet-server.mjs`（目录/图集/穿越/坏 URI/echo 上限/HEAD/junction 全部 PASS）
 - ✅ `scripts/test-host-logic.mjs`
-- ⏳ `scripts/e2e-live2d.mjs`：需真实 DSH web + Edge 环境，待实机跑；行为零变化的最终确认以 DSH 实机为准
+- ✅ `scripts/e2e-sprite.mjs`（**DSH 实机**：boot 含 dsh-pet、精灵渲染、拖拽持久化、无 pageerror）
+- ⏳ `scripts/e2e-live2d.mjs`：需真实 Live2D 模型（本机无 `.moc3`），待有模型后补跑
+
+### 实机回归抓到并修复的问题
+
+1. `src/client/index.js` wrapper 与导入组件同名 `PetOverlay`，JSX 词法解析导致 wrapper 无限递归，DSH 页面挂死 → 改名 `DshPetOverlay`。
+2. `src/core/PetOverlay.jsx` 外层返回了组件函数 `Overlay` 而非 `<Overlay />`，React 报 "Functions are not valid as a React child" 且不渲染 → 修正返回 JSX。
+3. 定位手段：A/B 移除 live patch 条目确认问题在插件；`apply` 逐段二分（no-op / 仅 CSS / 仅 slot）+ echo 探针；standalone 真机预览隔离核心。诊断脚本已清理，`dev-standalone.mjs` 与 `e2e-sprite.mjs` 留作正式工具。
 
 ### 待办
 
-- [ ] DSH 实机回归（试驾台/拖拽/动作/Live2D 正常）
+- [x] DSH 实机回归（sprite 全绿）
+- [ ] 有 Live2D 模型后补跑 `e2e-live2d.mjs`
 - [ ] 用户确认后把本条目同步进 PROJECT.md（已同步）并推送 Phase 0 提交
+
+---
+
+## [2026-08-14 19:57] 功能可行性：提醒 + 快捷批准 — 探索中
+
+> 用户提出：宠物是否计划支持"任务进入需要用户输入的阶段时提醒"、以及"对 DSH 需要批准的操作做快捷批准"。对照本机 DSH 类型定义调研，**两个都可行，且 DSH 已有第一方通道**。
+
+### 调研结论（DSH API 层面）
+
+1. 会话快照 `ConversationSnapshot.pending: readonly PendingInteraction[]` 已经是权威的"等待用户"清单，包含两类：
+   - `kind: "approval"`：payload = `{approvalId, toolName, callId?, reason?}`；
+   - `kind: "question"`：payload = `{questions: AskUserQuestionItem[]}`（问题/选项/多选/plan-review intent）。
+2. 每个 `PendingWait` 自带 `respond(result)`：内部回填 rpcId，走 `POST /api/respond`。
+   - 批准：`respond({ ok: true, value: { sessionId, approvalId, outcome: "allowed-once" } })`；
+   - 拒绝：`outcome: "rejected"`；
+   - 回答问题：`respond({ ok: true, value: { sessionId, answer: { answers: [...] } } })`。
+   - 挂起项 settlement 由 `approval/resolved` / `question/resolved` 帧驱动，无需宠物维护状态。
+3. 现有 `deriveState` 只把 `pending.length>0` 折叠成 `waiting`——**信息已经到手，只是没拆开用**。
+
+### 计划形态（待用户拍板后进 PROJECT）
+
+- **提醒**：
+  - 适配器把 pending 展开进 `PetState.detail.pending`（kind / 摘要 / 请求时间），渲染层显示气泡（"需要你批准：执行命令"）+ 提醒动画；
+  - 性格预设新增 `attention` 节奏：首次提示 → 间隔重复（如 30s）→ 升级（更频繁动作 / Electron 系统通知）；
+  - 无 pending 自动恢复。
+- **快捷批准**：
+  - 状态源接口增加可选 `perform(action)`（跨进程安全：postMessage 嵌入模式下父窗口只传动作 key，iframe 里的 DSH 适配器执行），内核不直接碰 DSH API；
+  - 批准/拒绝：宠物气泡旁出现明确的 ✓/✕ 小按钮（不做"单击宠物=批准"，避免误触）；支持快捷键/右键菜单后续扩展；
+  - 问答题：单选择题直接渲染选项按钮；多选/自由文本/plan-review 先显示摘要并引导到 DSH 界面回答（快捷批准先只做二选一）。
+- **落点**：Phase 2（宠物连上 DSH 后）第一批功能；Phase 0 只需确保 `detail` 形状预留 `pending` 字段即可，不提前实现。
+
+### 待用户拍板
+
+- [ ] 是否把"提醒 + 快捷批准"纳入正式路线图（Phase 2 首批功能）
+- [ ] 批准交互默认用"气泡按钮"还是"手势"（倾向气泡按钮）

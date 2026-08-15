@@ -383,5 +383,5 @@ export function PetOverlay({ stateSource, fetchPets, probe = () => {}, assetBase
 		return <RenderBoundary>{content}</RenderBoundary>;
 	}
 
-	return Overlay;
+	return <Overlay />;
 }

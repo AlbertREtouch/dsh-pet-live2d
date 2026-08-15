@@ -19,8 +19,8 @@
 
 - 插件形态可用：浏览器半注册 `shell.overlay`，服务端半注册 `/api/pets` 路由。
 - 已确认的架构演进方向：把宠物从 DSH 插件形态解耦为**独立主体**，DSH 降级为状态源之一。
-- 最新进展：**Phase 0 代码实施完成，待 DSH 实机回归**（目录分层 / createPetServer / 双目标构建 / 安全修复已落地；详见 DEVLOG 2026-08-14 19:58 条目，待同步）。
-- 关键测试基线：`test-host-logic.mjs` ✅、`smoke-client.mjs` ✅、`smoke-standalone.mjs` ✅、`test-pet-server.mjs` ✅；`e2e-live2d.mjs` 需 DSH web + Edge 实机环境。
+- 最新进展：**Phase 0 代码实施完成并通过 DSH 实机 sprite 回归**（目录分层 / createPetServer / 双目标构建 / 安全修复已落地；详见 DEVLOG 2026-08-14 19:58 条目，待同步）。
+- 关键测试基线：`test-host-logic.mjs` ✅、`smoke-client.mjs` ✅、`smoke-standalone.mjs` ✅、`test-pet-server.mjs` ✅、`e2e-sprite.mjs`（DSH 实机）✅；`e2e-live2d.mjs` 需 Live2D 模型（本机暂无）。
 
 ## 3. 核心设计决策（已确认，改动需用户重新批准）
 
