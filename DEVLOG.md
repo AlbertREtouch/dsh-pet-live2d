@@ -576,3 +576,31 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 
 - [ ] 用户按"背后放视频 → 拖动/点击宠物"场景复验
 - [ ] 通过后同步 PROJECT.md（§2/§6 Phase 1 完成状态 + 本节要点）并标记"已同步"
+
+---
+
+## [2026-08-15 23:50] Phase 1 修复：拖动边界逐次收缩/无法拖回 — 已确认
+
+> 用户报告：每拖一次，可拖动的右/下边界就向里缩，最后回不到原位。Win32 真实鼠标复现后确认是两个叠加问题，已修并实测。
+
+### 根因
+
+1. **抓取偏移算错对象**：renderer 传的是"相对宠物元素的偏移"（`clientX - petRect.left`），但主进程用它从屏幕坐标还原的是**窗口左上角**。宠物上面有 64px 气泡、左边有 24px 边距，于是每次水平拖动窗口右偏 24、下偏 64——边界当然越拖越缩。
+2. **renderer screenX/Y 反馈漂移**：窗口在指针下移动时，事件的 screenX/screenY 会跟着窗口位置自激，进一步把窗口推向右下角。
+
+### 修法
+
+- 拖拽偏移改为**相对窗口**：`beginDrag({offsetX: e.clientX, offsetY: e.clientY})`。
+- 移动坐标改由**主进程读 `screen.getCursorScreenPoint()`**，renderer 只发 `drag-start/drag-move/drag-end` 信号，不再回传 screenX/Y。
+- 移除紧凑窗口的悬停点击穿透开关（全屏蒙版已经不存在，这个开关只会制造竞态和失焦）；窗口小、始终可交互。
+
+### 验证
+
+- ✅ Win32 真实鼠标连续右拖 5 次：窗口从 (2084,752) → (2272,752)，**Y 稳定、尺寸始终 288×412**，到右边界后正确 clamp；不再逐次收缩。
+- ✅ `e2e-electron` sprite/Live2D 全 PASS（含合成拖拽 `dragMoved:true`）。
+- ✅ 待用户复验"拖到右下角再拖回左上角"。
+
+### 待办
+
+- [ ] 用户复验拖动与视频/焦点场景
+- [ ] 通过后同步 PROJECT.md 并标记本批条目"已同步"
