@@ -15,12 +15,12 @@
 - 仓库 fork 自 `YilunLi-999/dsh-pet-live2d` → `AlbertREtouch/dsh-pet-live2d`（public），Sapling 克隆于 `C:\MyCodeProject\live2D_pet`。
 - **上游同步策略：不跟进上游**（用户决策，2026-08-14）。本项目按自己的方向演进。
 
-## 2. 当前状态（2026-08-14）
+## 2. 当前状态（2026-08-15）
 
 - 插件形态可用：浏览器半注册 `shell.overlay`，服务端半注册 `/api/pets` 路由。
 - 已确认的架构演进方向：把宠物从 DSH 插件形态解耦为**独立主体**，DSH 降级为状态源之一。
-- 最新进展：**Phase 0 完成并通过 DSH 实机全量回归**（sprite + Live2D e2e 全 PASS；目录分层 / createPetServer / 双目标构建 / 安全修复已落地；详见 DEVLOG 2026-08-14 19:58 条目，待同步）。
-- 关键测试基线：`test-host-logic.mjs` ✅、`smoke-client.mjs` ✅、`smoke-standalone.mjs` ✅、`test-pet-server.mjs` ✅、`e2e-sprite.mjs`（DSH 实机）✅、`e2e-live2d.mjs`（DSH 实机，用户提供模型）✅。
+- 最新进展：**Phase 0 与 Phase 1 均已完成，Electron 独立桌宠通过用户真实桌面验收**。独立壳、运行时切肤、Live2D 参数试驾台、安装包/便携版、npm 发布入口均已落地；透明区域不再拦截后方应用，宠物在屏幕边缘快速拖放与反向回拖保持跟手，真实尺寸右下角初始化无先天死区。
+- 关键测试基线：`test-host-logic.mjs` ✅、`smoke-client.mjs` ✅、`smoke-standalone.mjs` ✅、`test-pet-server.mjs` ✅、`test-electron-window-logic.mjs` ✅、`e2e-electron.mjs`（dev + 打包产物，sprite + Live2D）✅、`e2e-sprite.mjs`（DSH 实机）✅、`e2e-live2d.mjs`（DSH 实机，用户提供模型）✅。
 
 ## 3. 核心设计决策（已确认，改动需用户重新批准）
 
@@ -41,6 +41,7 @@
 | 层 | 文件 | 作用 |
 |---|---|---|
 | 播放器（client plugin） | `src/client/index.js` → `lib/client.js` | DSH 胶水：注册 `shell.overlay`；接线会话/宠物目录/诊断 |
+| 独立桌面壳 | `electron/main.cjs` + `electron/preload.cjs` + `standalone.html` | Electron 紧凑透明窗口、原生命中区域、拖动/位置恢复、托盘与本地资产服务 |
 | 共享内核 | `src/core/` | `PetOverlay`（渲染+交互）、`PetStateBus`、性格预设；不感知 DSH |
 | 状态源适配器 | `src/adapters/` | `dsh-state.js`（ctx.sessions → PetState）、`mock.js`（演示源） |
 | 资产服务（host plugin） | `lib/index.js` | `createPetServer()` 工厂：DSH 注册或裸 `http.createServer`；扫描 `~/.dsh/pets/<id>/` |
@@ -100,11 +101,16 @@ interface PetStateSource {
 9. 验证：现有测试全绿 + 新增 `test-pet-server.mjs`、`smoke-standalone.mjs`。
 
 ### Phase 1：独立宠物（双击图标即开）
-- Electron 壳：主进程内挂 `createPetServer`（绑 127.0.0.1），渲染进程加载 standalone bundle，模拟状态源驱动。
-- 皮肤运行时可切换（菜单/托盘）；与性格解耦。（2026-08-15 追加：托盘提供 **Live2D 参数试驾台** 开关，通用 cdi3 路径 + assetBase 注入。）
-- electron-builder 打包安装包/便携版。
-- 发布形态：`exports["./server"]`、`exports["./standalone"]`，`files` 补 server/standalone/壳入口。
-- 里程碑：不装 DSH 也能双击打开活宠物。
+
+> 状态：✅ 完成（2026-08-15；用户真实桌面验收通过，独立开发版与打包版自动化全绿）。
+
+- Electron 壳：主进程内挂 `createPetServer`（绑 127.0.0.1），渲染进程加载 standalone bundle，模拟状态源驱动；窗口保持紧凑、透明、置顶且不抢焦点。
+- Windows 原生命中区域由 `setShape()` 限定为宠物/气泡/试驾台，形状外透明区域直接命中后方应用，不再形成透明遮挡。
+- 拖动按抓点跟随系统鼠标，只要求宠物主体保留 24px 可找回区域，允许透明壳部分出屏；边缘快速甩动后反向立即跟手，不累计越界死区。首次收到 renderer 真实尺寸后再放置到右下角，历史位置与 e2e 位置隔离。
+- 皮肤运行时可切换（托盘 radio 菜单），并与性格解耦；托盘提供 **Live2D 参数试驾台** 开关，使用通用 cdi3 路径 + assetBase 注入。
+- electron-builder 已产出 NSIS 安装包、portable 与 win-unpacked；发布形态已补 `exports["./server"]`、`exports["./standalone"]` 及 standalone/Electron 壳文件。
+- 验证覆盖纯窗口几何逻辑、Electron dev/打包产物、fixture sprite、真实 Live2D、Win32 真实鼠标快甩与原生点击命中；DSH sprite/Live2D 路径无回归。
+- 里程碑达成：不安装 DSH 也能双击打开、切换并拖动活宠物。
 
 ### Phase 2：反客为主（宠物启动 DSH）
 - **首批功能（已确认，2026-08-14）**：提醒 + 快捷批准——会话 `pending` 展开成气泡提醒（`attention` 节奏可配置）；批准/拒绝用气泡旁 **✓/✕ 按钮**；状态源增加可选 `perform(action)` 跨进程动作通道；单选提问渲染选项按钮，复杂提问引导回 DSH 界面。
@@ -144,10 +150,10 @@ interface PetStateSource {
 | R2 | 双目标构建漂移 | 插件/独立两目标源码必须单一 | 两目标必测 |
 | R3 | 状态协议版本化 | PetState 字段会演进 | version 字段 + optional + 未知字段透传 |
 | R4 | 远程/跨进程状态 | postMessage 之外的通道 | iframe postMessage 优先，其余后议 |
-| R5 | e2e 宿主耦合 | 现 e2e 依赖 DSH 页面 | Phase 1 补 standalone smoke |
-| R6 | 壳自动化测试 | Electron 壳难无头测试 | 壳保持薄，逻辑在 web 层可测 |
+| R5 | e2e 宿主耦合 | DSH 与 standalone 需独立覆盖 | 已补 standalone smoke + Electron dev/打包 e2e |
+| R6 | 壳自动化测试 | Electron/Win32 边缘行为难靠 DOM 合成事件覆盖 | 壳保持薄；窗口几何纯函数测试 + Electron e2e + Win32 真实鼠标/命中验证 |
 | R7 | 独立服务暴露面 | 坏 URI/echo 无上限/链接逃逸/绑定地址 | Phase 0 修复；默认只绑 127.0.0.1 |
-| R8 | npm 发布形态 | files 目前只含 lib/ + patch | Phase 1 发布前补 exports/files |
+| R8 | npm 发布形态 | server/standalone/壳入口必须随包发布 | Phase 1 已补 exports/files，`npm pack --dry-run` 验证通过 |
 
 ## 10. 版本控制约定
 

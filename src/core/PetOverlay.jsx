@@ -351,9 +351,32 @@ export function PetOverlay({
 				/* capture is best-effort; handlers fall back to bubbling */
 			}
 		}, []);
+		const finishDrag = useCallback((drag) => {
+			const desktop = desktopRef.current;
+			// Main receives drag-start even for a click that never crosses the
+			// movement threshold, so it must always receive the matching drag-end.
+			if (desktop !== null && typeof desktop.dragEnd === "function") {
+				desktop.dragEnd();
+				return;
+			}
+			if (!drag.moved) return;
+			try {
+				localStorage.setItem(STORAGE_POS, JSON.stringify({ x: drag.x, y: drag.y }));
+			} catch {
+				/* ignore */
+			}
+		}, []);
 		const onPointerMove = useCallback((e) => {
 			const drag = dragRef.current;
-			if (drag === null || e.pointerId !== drag.pointerId || (e.buttons & 1) === 0) return;
+			if (drag === null || e.pointerId !== drag.pointerId) return;
+			// Pointer capture can be lost while a transparent native window moves.
+			// A later move with the primary button released is an authoritative
+			// cleanup signal even if Chromium missed pointerup/pointercancel.
+			if ((e.buttons & 1) === 0) {
+				dragRef.current = null;
+				finishDrag(drag);
+				return;
+			}
 			const dx = e.clientX - drag.startX;
 			const dy = e.clientY - drag.startY;
 			if (!drag.moved && Math.hypot(dx, dy) < 4) return;
@@ -371,23 +394,13 @@ export function PetOverlay({
 			drag.x = x;
 			drag.y = y;
 			setPosition({ x, y });
-		}, []);
+		}, [finishDrag]);
 		const endDrag = useCallback((e) => {
 			const drag = dragRef.current;
 			if (drag === null || e.pointerId !== drag.pointerId) return;
 			dragRef.current = null;
-			if (!drag.moved) return;
-			const desktop = desktopRef.current;
-			if (desktop !== null && typeof desktop.dragEnd === "function") {
-				desktop.dragEnd();
-				return;
-			}
-			try {
-				localStorage.setItem(STORAGE_POS, JSON.stringify({ x: drag.x, y: drag.y }));
-			} catch {
-				/* ignore */
-			}
-		}, []);
+			finishDrag(drag);
+		}, [finishDrag]);
 
 		let content = null;
 		if (pets.length === 0) {

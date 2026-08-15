@@ -488,7 +488,7 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 
 ---
 
-## [2026-08-15 05:10] Phase 1 实施完成（Electron 独立宠物） — 已确认
+## [2026-08-15 05:10] Phase 1 实施完成（Electron 独立宠物） — 已同步
 
 > 新会话按 `PROJECT.md` 路线图 + 21:33 交接条目实施 Phase 1。全部代码已落地，本地测试 + Electron e2e + 两个 DSH 实机回归全绿，安装包/便携版均已产出。
 
@@ -522,13 +522,13 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 
 ### 待办
 
-- [ ] 用户试运行 `npm run electron`（或双击 dist 产物）确认交互手感
-- [ ] 用户确认后 `sl pr submit --stack`（Phase 0 栈 + 本批提交）
-- [ ] 批准后同步进 `PROJECT.md` 路线图 Phase 1 状态并标记本条目"已同步"
+- [x] 用户试运行 `npm run electron`（或双击 dist 产物）确认交互手感
+- [x] 用户确认执行 `sl pr submit --stack`（Phase 0 栈 + Phase 1 收尾提交）
+- [x] 同步进 `PROJECT.md` 路线图 Phase 1 状态并标记本条目“已同步”
 
 ---
 
-## [2026-08-15 05:30] Phase 1 追加：托盘试驾台 + 性格快捷生成设计 — 已确认
+## [2026-08-15 05:30] Phase 1 追加：托盘试驾台 + 性格快捷生成设计 — 已同步
 
 > 用户实测右键"出错了"后确认这是内置性格的预期行为（右键 = failed/Sad）。随后拍板两件事：**试驾台进托盘（现在做）**、**性格快捷生成只补设计（Phase 3b 实施）**。
 
@@ -546,13 +546,13 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 
 ### C. 待办
 
-- [ ] Phase 1 最终验收（用户手动按测试清单过一遍）
-- [ ] 验收通过后同步 PROJECT.md §2/§6 Phase 1 状态并标记本批条目"已同步"
-- [ ] 推送 PR（`sl pr submit --stack`，等用户确认）
+- [x] Phase 1 最终验收（用户手动按测试清单通过）
+- [x] 同步 PROJECT.md §2/§6 Phase 1 状态并标记本批条目“已同步”
+- [x] 用户已确认提交 PR 栈（`sl pr submit --stack`）
 
 ---
 
-## [2026-08-15 23:05] Phase 1 修复：全屏透明蒙版 → 紧凑窗口（视频黑屏/失焦） — 已确认
+## [2026-08-15 23:05] Phase 1 修复：全屏透明蒙版 → 紧凑窗口（视频黑屏/失焦） — 已同步
 
 > 用户实测报告：拖动/点击宠物时背后的网页"卡住"，视频黑屏只有声音，点回网页才恢复。诊断正确——旧壳是**覆盖整个工作区的透明 always-on-top 窗口**，鼠标进入宠物时整窗变为可交互，Windows 会把背后应用当作被遮挡/失焦。
 
@@ -574,12 +574,12 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 
 ### 待办
 
-- [ ] 用户按"背后放视频 → 拖动/点击宠物"场景复验
-- [ ] 通过后同步 PROJECT.md（§2/§6 Phase 1 完成状态 + 本节要点）并标记"已同步"
+- [x] 用户按“背后放视频 → 拖动/点击宠物”场景复验通过
+- [x] 同步 PROJECT.md（§2/§6 Phase 1 完成状态 + 本节要点）并标记“已同步”
 
 ---
 
-## [2026-08-15 23:50] Phase 1 修复：拖动边界逐次收缩/无法拖回 — 已确认
+## [2026-08-15 23:50] Phase 1 修复：拖动边界逐次收缩/无法拖回 — 已同步
 
 > 用户报告：每拖一次，可拖动的右/下边界就向里缩，最后回不到原位。Win32 真实鼠标复现后确认是两个叠加问题，已修并实测。
 
@@ -598,16 +598,16 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 
 - ✅ Win32 真实鼠标连续右拖 5 次：窗口从 (2084,752) → (2272,752)，**Y 稳定、尺寸始终 288×412**，到右边界后正确 clamp；不再逐次收缩。
 - ✅ `e2e-electron` sprite/Live2D 全 PASS（含合成拖拽 `dragMoved:true`）。
-- ✅ 待用户复验"拖到右下角再拖回左上角"。
+- ✅ 用户最终复验“拖到右下角再拖回左上角”通过（完整修法见 12:38 条目）。
 
 ### 待办
 
-- [ ] 用户复验拖动与视频/焦点场景
-- [ ] 通过后同步 PROJECT.md 并标记本批条目"已同步"
+- [x] 用户复验拖动与视频/焦点场景通过
+- [x] 同步 PROJECT.md 并标记本批条目“已同步”
 
 ---
 
-## [2026-08-15 深夜] Phase 1 未完成 —— 用户复验失败 + 新问题 + 交接给新会话 — 探索中（待修复）
+## [2026-08-15 深夜] Phase 1 未完成 —— 用户复验失败 + 新问题 + 交接给新会话 — 已废弃（由 12:38 修复收口）
 
 > **用户明确结论：Phase 1 尚未完成，明天开新 session 继续修。** 本条目是给新会话的完整交接：当前实现状态、用户复现、已验证事实、未决假设、诊断路径。新会话先读 `PROJECT.md`，再读本条目；**不要**把 Phase 1 标记完成，**不要**推送 PR。
 
@@ -693,3 +693,73 @@ Electron 独立宠物壳（紧凑窗口）已经实现，自动化测试全绿�
   ...（更早的 Phase 0/1 提交见 smartlog）
   ```
 - 工作区当前干净；未推送 PR（用户明确未确认）。
+
+---
+
+## [2026-08-15 12:17] Phase 1 修复：边缘回拖死区 + 透明窗口原生命中区域 — 部分有效（命中修复确认；拖动结论已废弃）
+
+> 接续“深夜”交接逐项验证。此前自动化只证明窗口矩形会移动，没有覆盖边缘越界后的反向手感，也没有验证透明区域由哪个原生 HWND 接收鼠标。本轮找到两个可独立复现的根因并修复；Phase 1 在用户完成真实桌面复验前仍不标记完成，不推送 PR，不同步 `PROJECT.md`。
+
+### 根因
+
+1. **边缘 clamp 累积越界量**：窗口到达工作区右/下边界后，主进程只 clamp 窗口位置，却继续保留最初的 `dragOffset`。鼠标越过边界多少，回拖时就必须先穿过多少不可见距离，才会让窗口重新移动；这正是“越拖越缩/拖不回来”的手感，不是窗口尺寸真的逐次变小。
+2. **紧凑透明窗口仍是完整矩形命中区域**：Win32 `WindowFromPoint` 实测，修复前窗口四角（包括完全透明的右下角）都命中 Electron 的 `Chrome_RenderWidgetHostHWND`。所以窗口虽然不再全屏，透明边距仍会吞掉后方应用点击；关闭宠物后恢复是预期表现。未发现超出实际窗口矩形的幽灵 HWND，H1“旧位置残留大区域”与 H2“旧全屏进程残留”在本次干净复现中均无证据。
+3. **普通点击留下主进程拖拽状态**：renderer 的 `pointerdown` 总会发 `drag-start`，但未越过 4px 阈值的普通点击在 `pointerup` 时提前返回，不发 `drag-end`；这是独立的状态清理缺口。
+
+### 修复
+
+- 新增 `electron/window-geometry.cjs`，把窗口 clamp、边缘拖拽解析、原生命中形状做成纯函数。
+- clamp 发生时仅对被限制的轴**重基准抓取偏移**：鼠标从边缘反向移动 1px，窗口立即反向移动 1px，不再存在越界回拖死区。
+- Windows 使用 Electron `setShape()` 显式限定透明壳的原生绘制/交互区域：保留气泡带、宠物（含阴影余量）和开启时的 Live2D 试驾台；形状外透明边距不绘制、不收鼠标，点击直接落到后方窗口。无宠物 hint 阶段仍保留完整矩形，其他平台暂维持原行为。
+- renderer 无论“拖动”还是“只点击”都配对发送 `drag-end`；若移动透明窗口时 Chromium 漏掉 `pointerup/pointercancel`，后续观察到主键已释放的 `pointermove` 也会兜底清理。
+- `e2e-electron.mjs` 主动删除外部继承的 `ELECTRON_RUN_AS_NODE`，避免 agent/CI 把 `electron.exe` 误启动成普通 Node；e2e 新增 `clickDragStateCleared` 与 `shapeCornerFallsThrough` 硬断言。
+- 新增 `scripts/test-electron-window-logic.mjs` / `npm run test:electron-window`，覆盖右下边缘越界后反向 1px 立即恢复、窗口 clamp、透明角落排除、试驾台区域保留。
+
+### 验证
+
+- ✅ `smoke-client` / `smoke-standalone` / `test-pet-server` / `test-host-logic`
+- ✅ `test-electron-window-logic`：边缘回拖、shape 逻辑全 PASS。
+- ✅ Electron dev（fixture sprite）e2e：`dragMoved=true`、`clickDragStateCleared=true`、`shapeCornerFallsThrough=true`。
+- ✅ Electron dev（真实 `~/.dsh/pets`，anko Live2D）e2e：皮肤切换、试驾台开关、拖动、点击清理、透明角落全 PASS。
+- ✅ 重建 `dist/win-unpacked/DSH Pet.exe` 后再以真实 anko Live2D e2e，结果全 PASS。
+- ✅ Win32 原生命中复验：宠物主体点仍命中桌宠 HWND；同一窗口右下透明角点已命中后方应用 HWND，证明点击穿透发生在 OS 命中层，不只是 DOM `pointer-events`。
+- ✅ 重建分发产物：`dist/DSH Pet-0.1.0-portable.exe`、`dist/DSH Pet Setup 0.1.0.exe`。
+
+### 待办
+
+- [ ] 用户用本轮新构建复验：拖到右下边界后继续向外拖，再立刻反向 1–10px；宠物应立即跟手返回。
+- [ ] 用户点击宠物窗口右下透明边距及宠物旁的后方应用控件，确认均可命中后方窗口；宠物主体仍可单击/右击/拖动。
+- [ ] 用户确认后，才把 Phase 1 标记完成并批准同步 `PROJECT.md`；PR 仍需单独确认。
+
+---
+
+## [2026-08-15 12:38] Phase 1 二次修复：按抓点跟随，移除整窗先天死区 — 已同步
+
+> 用户复验确认上一版的原生命中区域修复有效，但边缘死区仍存在，并指出“初始位置已经位于右下角，鼠标可继续进入边缘区域而 pet 本体无法进入，随后开始积累”。该观察正确，推翻了上一条目中“只需在整窗 clamp 后重基准”的完整性结论。
+
+### 修正后的根因
+
+1. **整窗完全留屏本身就制造先天死区**：Live2D 壳宽约 288px；若从宠物中部（窗口内约 144px）抓住，旧算法会在鼠标距离屏幕右缘约 144px 时就把窗口钉住。鼠标到物理边缘之间的空间天然不会带动 pet，与是否累计、是否快速甩动无关。
+2. **快速甩动只会放大问题**：窗口被 `setShape()` 限定命中区域后，鼠标快速离开原生窗口形状时，依赖后续 `pointermove` 才执行的重基准并不可靠；上一版纯函数测试覆盖了“连续收到 move”的理想情况，却没有覆盖整窗 clamp 导致抓点先离开窗口的真实路径。
+3. **初始化使用占位尺寸**：旧代码先按 `DEFAULT_WINDOW=360×224` 算右下角，再收到 renderer 上报的真实 sprite/Live2D 尺寸并 resize/clamp。尺寸先后不一致会给新启动位置带来额外偏差；历史保存位置也可能来自旧的整窗 clamp。
+
+### 新修法
+
+- 拖动约束从“整个透明 BrowserWindow 必须留在工作区”改为“宠物主体至少保留 24px 可找回”：正常从宠物内部抓取时，透明窗口允许部分出屏，抓点始终跟随系统鼠标；只有抓住宠物最边缘、继续外拖会让主体几乎完全消失时，24px 安全条才介入。
+- 24px 安全条发生 clamp 时仍对单轴重基准，因此极端边缘抓取也不会积累回拖距离。
+- 新启动先创建占位窗口；renderer 第一次上报真实宠物尺寸后，再用**真实窗口尺寸**放到主屏右下角 16px 处。有效历史位置保留，显示器拓扑变化时按宠物主体而不是透明整窗恢复到可见范围。
+- Electron e2e 模式忽略并不写入真实 `shell-position.json`，避免测试污染用户的桌宠位置。
+
+### 新增/更新验证
+
+- ✅ `test-electron-window-logic`：真实尺寸右下角初始化；中部抓取到工作区右下角时窗口可部分出屏且不 clamp；反向 1px 立即回移 1px；极端边缘抓取保留 24px 并无累积；显示器变化后主体可恢复。
+- ✅ dev sprite e2e：`startupPlacedWithRealSize=true`、`edgeDragFollowed=true`，其余拖动/点击清理/透明穿透断言全 PASS。
+- ✅ dev 真实 anko Live2D e2e：试驾台 + 上述全部断言 PASS。
+- ✅ Win32 真实鼠标单步快甩：按住真实 `DSH Pet` HWND 后把鼠标一次跳到工作区右下角，窗口跟到允许部分出屏的位置；鼠标反向 10px，窗口左上角精确变化 `(-10,-10)`，没有回拖等待距离。
+- ✅ 重建 portable/NSIS/win-unpacked；打包后的真实 anko Live2D e2e：`startupWindowBounds=288×412` 且右/下边距均为 16px，`edgeDragFollowed=true`，全 PASS。
+
+### 用户验收与收口
+
+- [x] 用户使用 12:38 后的新构建复验同一真实操作，确认中部抓取快速甩到右/下边缘、立即反向时始终跟手，问题已修复。
+- [x] 用户批准标记 Phase 1 完成并同步 `PROJECT.md`。
+- [x] 用户批准用 Sapling 创建收尾提交并执行 `sl pr submit --stack`。

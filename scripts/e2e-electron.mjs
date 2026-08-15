@@ -46,16 +46,23 @@ if (fixtureRoot === null) {
 }
 
 const isPackaged = process.env.DSH_PET_E2E_BINARY !== undefined;
+const childEnv = {
+	...process.env,
+	DSH_PET_ROOT: tmpRoot,
+	ELECTRON_ENABLE_LOGGING: "1",
+};
+// Some agent/CI shells export this flag for their own Electron host. Letting
+// it leak into the child turns electron.exe into plain Node, where `app` is
+// undefined and the e2e fails before the shell starts.
+for (const name of Object.keys(childEnv)) {
+	if (name.toUpperCase() === "ELECTRON_RUN_AS_NODE") delete childEnv[name];
+}
 const child = spawn(
 	electronBinary,
 	isPackaged ? ["--dsh-pet-e2e"] : [join(root, "electron", "main.cjs"), "--dsh-pet-e2e"],
 	{
 		cwd: root,
-		env: {
-			...process.env,
-			DSH_PET_ROOT: tmpRoot,
-			ELECTRON_ENABLE_LOGGING: "1",
-		},
+		env: childEnv,
 		stdio: ["ignore", "pipe", "pipe"],
 	},
 );
@@ -89,6 +96,17 @@ try {
 	}
 	const line = stdout.slice(okIndex()).split("\n")[0];
 	console.log(line);
+	const payload = JSON.parse(line.slice("DSH_PET_E2E_OK ".length));
+	if (
+		payload.startupPlacedWithRealSize !== true ||
+		payload.dragMoved !== true ||
+		payload.edgeDragFollowed !== true ||
+		payload.clickDragStateCleared !== true ||
+		payload.shapeCornerFallsThrough !== true
+	) {
+		console.error("E2E ELECTRON FAIL (window interaction regression)");
+		process.exit(1);
+	}
 	if (result.code !== 0) {
 		console.error(`E2E ELECTRON FAIL (exit ${result.code})`);
 		if (stderr.trim().length > 0) console.error(stderr.trim().slice(-2000));

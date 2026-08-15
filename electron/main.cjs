@@ -19,10 +19,18 @@ const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen } = require
 const { createServer } = require("node:http");
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
+const {
+	buildWindowShape,
+	clampBoundsToVisiblePet,
+	clampBoundsToWorkArea,
+	defaultPositionForSize,
+	resolveDragMove,
+} = require("./window-geometry.cjs");
 
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 const E2E_FLAG = "--dsh-pet-e2e";
 const E2E_TIMEOUT_MS = 30000;
+const IS_E2E = process.argv.includes(E2E_FLAG);
 
 // Must match the shell-mode paddings used by PetOverlay when desktopWindow
 // is provided (renderer reports only pet width/height; main derives size).
@@ -49,6 +57,8 @@ const state = {
 	positionFile: null,
 	dragOffset: null,
 	e2eCursor: null,
+	windowShape: [],
+	needsDefaultPlacement: false,
 };
 
 async function loadPetModule() {
@@ -66,10 +76,7 @@ function workAreaFor(rect) {
 }
 
 function clampBounds(bounds) {
-	const workArea = workAreaFor(bounds);
-	const x = Math.min(Math.max(bounds.x, workArea.x), Math.max(workArea.x, workArea.x + workArea.width - bounds.width));
-	const y = Math.min(Math.max(bounds.y, workArea.y), Math.max(workArea.y, workArea.y + workArea.height - bounds.height));
-	return { x: Math.round(x), y: Math.round(y), width: Math.round(bounds.width), height: Math.round(bounds.height) };
+	return clampBoundsToWorkArea(bounds, workAreaFor(bounds));
 }
 
 function loadPosition() {
@@ -78,6 +85,7 @@ function loadPosition() {
 		y: null,
 	};
 	try {
+		if (IS_E2E) return fallback;
 		if (state.positionFile === null) return fallback;
 		const parsed = JSON.parse(readFileSync(state.positionFile, "utf8"));
 		if (typeof parsed?.x === "number" && typeof parsed?.y === "number") {
@@ -90,6 +98,7 @@ function loadPosition() {
 }
 
 function scheduleSavePosition() {
+	if (IS_E2E) return;
 	if (state.saveTimer !== null) clearTimeout(state.saveTimer);
 	state.saveTimer = setTimeout(() => {
 		state.saveTimer = null;
@@ -98,6 +107,7 @@ function scheduleSavePosition() {
 }
 
 function savePosition() {
+	if (IS_E2E) return;
 	if (state.positionFile === null || state.position.x === null || state.position.y === null) return;
 	try {
 		mkdirSync(path.dirname(state.positionFile), { recursive: true });
@@ -105,14 +115,6 @@ function savePosition() {
 	} catch {
 		/* position persistence is best-effort */
 	}
-}
-
-function defaultPosition() {
-	const { workArea } = screen.getPrimaryDisplay();
-	return {
-		x: workArea.x + workArea.width - DEFAULT_WINDOW.width - 16,
-		y: workArea.y + workArea.height - DEFAULT_WINDOW.height - 16,
-	};
 }
 
 function currentSize() {
@@ -133,10 +135,48 @@ function readCursor() {
 	return state.e2eCursor ?? screen.getCursorScreenPoint();
 }
 
-function moveWindowTo(x, y) {
+function applyWindowShape() {
 	if (state.win === null || state.win.isDestroyed()) return;
+	const bounds = state.win.getBounds();
+	state.windowShape = buildWindowShape({
+		windowSize: { width: bounds.width, height: bounds.height },
+		petBounds:
+			state.petBounds.width === null || state.petBounds.height === null
+				? null
+				: { width: state.petBounds.width, height: state.petBounds.height },
+		debugPanel: state.debugPanel,
+		pad: SHELL_PAD,
+	});
+	// Electron exposes native window shapes on Windows/Linux. Phase 1's
+	// transparent-input bug is Windows-specific, so keep other platforms on
+	// their existing rectangular behavior until they are tested explicitly.
+	if (process.platform === "win32" && typeof state.win.setShape === "function") {
+		state.win.setShape(state.windowShape);
+	}
+}
+
+function moveWindowForDrag(cursor) {
+	if (state.win === null || state.win.isDestroyed() || state.dragOffset === null) return;
 	const size = currentSize();
-	const bounds = clampBounds({ x, y, width: size.width, height: size.height });
+	const requested = {
+		x: cursor.x - state.dragOffset.x,
+		y: cursor.y - state.dragOffset.y,
+		width: size.width,
+		height: size.height,
+	};
+	const movement = resolveDragMove({
+		cursor,
+		dragOffset: state.dragOffset,
+		size,
+		workArea: screen.getDisplayNearestPoint(cursor).workArea,
+		petBounds: state.petBounds,
+		pad: SHELL_PAD,
+	});
+	const { bounds } = movement;
+	// Rebase on a clamped axis so moving the cursor one pixel back from an edge
+	// moves the pet one pixel immediately instead of traversing accumulated
+	// off-screen overshoot first.
+	state.dragOffset = movement.dragOffset;
 	state.position = { x: bounds.x, y: bounds.y };
 	state.win.setPosition(bounds.x, bounds.y, false);
 	scheduleSavePosition();
@@ -161,14 +201,26 @@ function cockpitSize() {
 	};
 }
 
-/** Resize (and re-clamp) the shell around its current top-left position. */
-function applyWindowSize() {
+/** Resize the shell while keeping the pet, rather than its transparent canvas, recoverable. */
+function applyWindowSize({ placeDefault = false } = {}) {
 	if (state.win === null || state.win.isDestroyed() || state.petBounds.width === null) return;
 	const current = state.win.getBounds();
 	const size = state.debugPanel ? cockpitSize() : compactSize();
-	const bounds = clampBounds({ x: current.x, y: current.y, width: size.width, height: size.height });
+	let bounds;
+	if (placeDefault) {
+		const workArea = screen.getPrimaryDisplay().workArea;
+		bounds = { ...defaultPositionForSize(size, workArea), width: size.width, height: size.height };
+	} else if (state.debugPanel) {
+		// The cockpit is a conventional control panel and should remain wholly
+		// usable when explicitly opened.
+		bounds = clampBounds({ x: current.x, y: current.y, width: size.width, height: size.height });
+	} else {
+		const proposed = { x: current.x, y: current.y, width: size.width, height: size.height };
+		bounds = clampBoundsToVisiblePet(proposed, workAreaFor(proposed), state.petBounds, SHELL_PAD);
+	}
 	state.position = { x: bounds.x, y: bounds.y };
 	state.win.setBounds(bounds, false);
+	applyWindowShape();
 	scheduleSavePosition();
 }
 
@@ -179,13 +231,18 @@ function createWindow() {
 	// the work-area origin, which is meaningless for the compact window.
 	const savedIsLegacyFullscreen =
 		saved.x !== null && saved.y !== null && Math.abs(saved.x - workArea.x) < 2 && Math.abs(saved.y - workArea.y) < 2;
-	const fallback = defaultPosition();
-	const initial = clampBounds({
-		x: saved.x !== null && !savedIsLegacyFullscreen ? saved.x : fallback.x,
-		y: saved.y !== null && !savedIsLegacyFullscreen ? saved.y : fallback.y,
+	const hasUsableSavedPosition = saved.x !== null && saved.y !== null && !savedIsLegacyFullscreen;
+	const fallback = defaultPositionForSize(DEFAULT_WINDOW, workArea);
+	// Preserve a saved partially-offscreen position until the real pet size is
+	// known. applyWindowSize will recover the pet itself if display geometry
+	// changed. A fresh/legacy launch is placed again after real-size reporting.
+	const initial = {
+		x: Math.round(hasUsableSavedPosition ? saved.x : fallback.x),
+		y: Math.round(hasUsableSavedPosition ? saved.y : fallback.y),
 		width: DEFAULT_WINDOW.width,
 		height: DEFAULT_WINDOW.height,
-	});
+	};
+	state.needsDefaultPlacement = !hasUsableSavedPosition;
 	state.position = { x: initial.x, y: initial.y };
 	state.win = new BrowserWindow({
 		x: initial.x,
@@ -210,10 +267,10 @@ function createWindow() {
 		},
 	});
 	state.win.setAlwaysOnTop(true, "floating");
-	// The compact window is always mouse-interactive. There is no full-screen
-	// mask anymore, so no hover-toggled click-through is needed (and toggling
-	// ignore-mouse mid-hover is exactly what used to steal focus/occlude the
-	// app behind the pet).
+	// Start rectangular so the no-pet hint remains usable. Once the renderer
+	// reports a pet size, applyWindowShape narrows native drawing/input to the
+	// bubble + pet regions and transparent margins fall through.
+	applyWindowShape();
 	state.win.loadFile(path.join(__dirname, "..", "standalone.html"), {
 		query: { assetBase: buildAssetBase() },
 	});
@@ -367,7 +424,7 @@ function installIpc() {
 	ipcMain.on("dsh-pet:drag-move", (event) => {
 		if (state.win === null || event.sender !== state.win.webContents || state.dragOffset === null) return;
 		const cursor = readCursor();
-		moveWindowTo(cursor.x - state.dragOffset.x, cursor.y - state.dragOffset.y);
+		moveWindowForDrag(cursor);
 	});
 	ipcMain.on("dsh-pet:drag-end", (event) => {
 		if (state.win === null || event.sender !== state.win.webContents) return;
@@ -379,8 +436,10 @@ function installIpc() {
 		const width = payload?.width;
 		const height = payload?.height;
 		if (typeof width !== "number" || typeof height !== "number" || width <= 0 || height <= 0) return;
+		const isFirstRealSize = state.petBounds.width === null;
 		state.petBounds = { width: Math.round(width), height: Math.round(height) };
-		applyWindowSize();
+		applyWindowSize({ placeDefault: isFirstRealSize && state.needsDefaultPlacement });
+		if (isFirstRealSize) state.needsDefaultPlacement = false;
 	});
 }
 
@@ -426,6 +485,11 @@ async function runE2E() {
 	try {
 		await waitFor(() => state.currentPetId !== null, "renderer to report the mounted pet", deadline);
 		await waitFor(() => state.petBounds.width !== null, "renderer to report pet bounds", deadline);
+		const startupBounds = state.win.getBounds();
+		const startupWorkArea = screen.getDisplayMatching(startupBounds).workArea;
+		const startupPlacedWithRealSize =
+			startupBounds.x + startupBounds.width === startupWorkArea.x + startupWorkArea.width - 16 &&
+			startupBounds.y + startupBounds.height === startupWorkArea.y + startupWorkArea.height - 16;
 		const catalog = await httpGetJson("/api/pets");
 		const renderer = await state.win.webContents.executeJavaScript(
 			`JSON.stringify({
@@ -522,16 +586,81 @@ async function runE2E() {
 			}
 		}
 		state.e2eCursor = null;
+
+		// A click still sends drag-start, but never crosses the movement
+		// threshold. Verify renderer cleanup sends the matching drag-end so the
+		// main process cannot retain a stale drag after ordinary clicks.
+		state.dragOffset = { x: -999, y: -999 };
+		const clickDispatched = await state.win.webContents.executeJavaScript(
+			`(() => {
+				const pet = document.querySelector(".dsh-pet");
+				if (pet === null) return "no-pet";
+				const r = pet.getBoundingClientRect();
+				const base = { bubbles: true, button: 0, buttons: 1, pointerId: 23, clientX: r.left + 16, clientY: r.top + 16 };
+				pet.dispatchEvent(new PointerEvent("pointerdown", base));
+				pet.dispatchEvent(new PointerEvent("pointerup", { ...base, buttons: 0 }));
+				return "ok";
+			})()`,
+		);
+		let clickDragStateCleared = false;
+		if (clickDispatched === "ok") {
+			try {
+				await waitFor(() => state.dragOffset === null, "ordinary click to clear drag state", deadline);
+				clickDragStateCleared = true;
+			} catch {
+				clickDragStateCleared = false;
+			}
+		}
+
+		// Exercise the actual main-process edge geometry. A center grab should
+		// continue following the cursor all the way to the work-area corner even
+		// though most of the transparent shell rectangle extends beyond it; one
+		// pixel of reverse cursor movement must then move the window one pixel.
+		const beforeEdgeBounds = state.win.getBounds();
+		const edgeWorkArea = screen.getDisplayMatching(beforeEdgeBounds).workArea;
+		const edgeGrab = {
+			x: SHELL_PAD.left + Math.floor(state.petBounds.width / 2),
+			y: SHELL_PAD.top + Math.floor(state.petBounds.height / 2),
+		};
+		const edgeCursor = {
+			x: edgeWorkArea.x + edgeWorkArea.width - 1,
+			y: edgeWorkArea.y + edgeWorkArea.height - 1,
+		};
+		state.dragOffset = edgeGrab;
+		moveWindowForDrag(edgeCursor);
+		const atEdge = state.win.getBounds();
+		moveWindowForDrag({ x: edgeCursor.x - 1, y: edgeCursor.y - 1 });
+		const afterReverse = state.win.getBounds();
+		const edgeDragFollowed =
+			atEdge.x === edgeCursor.x - edgeGrab.x &&
+			atEdge.y === edgeCursor.y - edgeGrab.y &&
+			afterReverse.x === atEdge.x - 1 &&
+			afterReverse.y === atEdge.y - 1;
+		state.dragOffset = null;
 		const bounds = state.win.getBounds();
+		const shapeCornerFallsThrough =
+			state.windowShape.length > 0 &&
+			!state.windowShape.some(
+				(rect) =>
+					bounds.width - 1 >= rect.x &&
+					bounds.height - 1 >= rect.y &&
+					bounds.width - 1 < rect.x + rect.width &&
+					bounds.height - 1 < rect.y + rect.height,
+			);
 		const result = {
 			port: state.port,
 			pet: state.currentPetId,
+			startupPlacedWithRealSize,
+			startupWindowBounds: startupBounds,
 			catalog: Array.isArray(catalog) ? catalog.length : -1,
 			renderer: JSON.parse(renderer),
 			switchedPet,
 			switchedKind,
 			cockpitToggled,
 			dragMoved,
+			edgeDragFollowed,
+			clickDragStateCleared,
+			shapeCornerFallsThrough,
 			windowBounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
 			petBounds: state.petBounds,
 		};
@@ -569,7 +698,7 @@ if (!gotLock) {
 			refreshPets().catch(() => {});
 		}, 30000);
 		state.refreshTimer.unref?.();
-		if (process.argv.includes(E2E_FLAG)) {
+		if (IS_E2E) {
 			runE2E();
 		}
 	});
