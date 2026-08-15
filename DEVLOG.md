@@ -604,3 +604,92 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 
 - [ ] 用户复验拖动与视频/焦点场景
 - [ ] 通过后同步 PROJECT.md 并标记本批条目"已同步"
+
+---
+
+## [2026-08-15 深夜] Phase 1 未完成 —— 用户复验失败 + 新问题 + 交接给新会话 — 探索中（待修复）
+
+> **用户明确结论：Phase 1 尚未完成，明天开新 session 继续修。** 本条目是给新会话的完整交接：当前实现状态、用户复现、已验证事实、未决假设、诊断路径。新会话先读 `PROJECT.md`，再读本条目；**不要**把 Phase 1 标记完成，**不要**推送 PR。
+
+### 0. 一句话状态
+
+Electron 独立宠物壳（紧凑窗口）已经实现，自动化测试全绿；但用户真机复验仍失败：
+1. 旧问题"拖动边界逐次收缩/无法拖回"**用户认为还没修好**；
+2. 出现更严重的新现象：**拖到右侧/下侧被限制后，鼠标无法点击屏幕右侧/下侧区域里其他窗口的交互**，像有透明蒙版盖住；**关掉宠物后恢复**。
+
+### 1. 当前实现（新会话先读这些文件，不要无脑重写）
+
+| 文件 | 关键内容 |
+|---|---|
+| `electron/main.cjs` | 紧凑窗口创建；`readCursor()` 用 `screen.getCursorScreenPoint()` 拖窗；`moveWindowTo/clampBounds/applyWindowSize`；`shell-position.json` 持久化；cockpit 展开窗口；`--dsh-pet-e2e` 自检；`focus` 事件立即 `blur()` |
+| `electron/preload.cjs` | `beginDrag/dragMove/dragEnd/setPetBounds/onSelectPet/onSetDebug/reportPet`，contextIsolation+sandbox |
+| `standalone.html` | 壳页面：组装 `desktopWindow` 回调传入 `PetStandalone.mount` |
+| `src/core/PetOverlay.jsx` | `desktopWindow` 模式：宠物固定在窗口内 (24,64)，拖动只发 IPC 信号；`Overlay` 组件身份已稳定化（不再每次渲染重挂）；hint 定位已修 |
+| `src/entries/standalone.js` | `mount` 返回 `unmount + selectPet + setDebugPanel`；fetchPets 已稳定 |
+| `lib/standalone.js` | 已提交的构建产物，包含上述渲染层改动 |
+
+拖拽链路：pointerdown → `desktopWindow.beginDrag({offsetX: e.clientX, offsetY: e.clientY})`（**窗口相对**，不是宠物元素相对）→ pointermove → `dragMove()`（无坐标）→ main 读系统光标 → `moveWindowTo(cursor - offset)` → pointerup → `dragEnd()` 保存位置。
+
+### 2. 用户真机复现（最重要，明天照此复现）
+
+1. 启动 `npm run electron`（或 `dist\DSH Pet-0.1.0-portable.exe`）。
+2. 把宠物拖到屏幕右侧/下侧边缘，反复拖，尝试拖回左上角。
+3. 观察：边界仍然"越拖越缩"的感觉（**未修好**）。
+4. 然后点击屏幕右/下区域里其他程序的按钮/窗口：**点不到**，像被透明蒙版挡住；关闭宠物后恢复。
+
+### 3. 已做过的修复（勿重复尝试，除非有新的证据推翻）
+
+- 全屏透明蒙版 → 紧凑窗口（24/64/24/8 边距）。
+- 拖拽偏移从"宠物元素相对"改为"窗口相对"。
+- 坐标来源从 renderer `screenX/screenY` 改为 main `screen.getCursorScreenPoint()`。
+- 移除紧凑窗口的悬停点击穿透开关（窗口始终可交互）。
+- `focusable:false` + focus→blur 兜底。
+- `PetOverlay` 稳定组件身份、fetchPets 稳定、hint 定位修复。
+
+### 4. 已验证事实（自动化和 Win32 实测）
+
+- ✅ `e2e-electron`（dev + `dist\win-unpacked\DSH Pet.exe`）sprite/Live2D/试驾台/合成拖拽全 PASS。
+- ✅ 本机 Win32 真实鼠标测试：连续右拖 5 次，`GetWindowRect` 显示 Y 稳定、尺寸始终 288×412、到右边界 clamp（2084,752 → 2272,752）。
+- ✅ DSH 实机 `e2e-sprite` / `e2e-live2d`、smoke/unit 全绿。
+- ❌ 但上述自动化**没有复现用户的手感/遮挡问题**——自动化窗口是干净的、没有其他窗口叠加，而且合成/脚本拖拽与真实桌面环境不同。**不能把自动化 PASS 当作修复证据。**
+
+### 5. 未决假设（按怀疑度排序，明天逐条验证）
+
+- **H1 窗口移动后 Windows 分层窗口（WS_EX_LAYERED）命中区域/可视区域没有同步更新**：透明 frameless + 程序化 `setPosition` 后，OS 可能残留旧尺寸/旧位置的输入区域或 DWM 合成区域；关闭窗口才恢复。这最符合"关掉宠物就正常"。
+  - 候选修法（一次只试一个）：
+    a. 移动/缩放后强制 `win.hide(); win.show()`（或 `setOpacity` 抖动）逼 DWM 重算区域；
+    b. `win.setShape([petRect, bubbleRect])` 显式设置窗口区域；
+    c. 每次移动后 `win.setBounds(bounds, true)` 动画方式；
+    d. 去掉 `movable:false` / 换 `setPosition` 为 `setBounds`；
+    e. `app.disableHardwareAcceleration()` 或 `--disable-gpu` 试跑，判断是否 GPU/DWM 合成问题；
+    f. 如果透明窗口在 Windows 上就是不可靠，评估**不透明窗口 + chroma key** 或 **每拖一次重建窗口**。
+- **H2 存在旧版全屏蒙版进程残留**：dev 与打包版 userData 不同（`dsh-pet` / `Electron` / `DSH Pet`），单实例锁互不相干，旧版全屏透明窗可能仍挂在后台 skipTaskbar 不可见。明天第一件事：`Get-Process electron` 全杀，枚举顶层窗口 rect 确认，再复现。用户环境优先怀疑这个。
+- **H3 窗口实际 OS 尺寸 > 逻辑尺寸**（透明窗在 Windows 上的 DWM 扩展边框/阴影）。用 `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` 和 `GetWindowRect` 对照 Electron `getBounds()`。
+- **H4 cockpit 展开窗口未恢复**：试驾台开启时窗口扩到 `petW+360 × max(...,≤600)`，检查 `state.debugPanel` 与真实 bounds；用户未开试驾台则排除。
+- **H5 clamp 之后窗口虽在边界，但拖拽 offset 仍未真正跟随鼠标**：用户手感"缩"可能来自 clamp 正常但回拖时 hit-test/焦点问题。录 `drag-start/drag-move/drag-end` 与 `getPosition()` 轨迹再判断。
+
+### 6. 明天建议的诊断路径
+
+1. **先杀干净所有 electron**：`Get-Process electron | Stop-Process -Force`；用 `EnumWindows + GetWindowText + GetWindowRect` 列出所有可见/不可见顶层窗口，确认没有全屏遗留窗口。
+2. 启动 dev 壳（本会话沙箱需 `danger-full-access` 才能 spawn electron），打开一个最大化记事本/资源管理器。
+3. 用 P/Invoke `WindowFromPoint` 采样被挡区域的屏幕坐标，打印命中的 HWND、class、进程——直接证明是不是宠物窗口/其残留区域在吃鼠标。
+4. 拖到右/下边界后再采样一次。
+5. 逐个试验 §5 H1 的候选修法；每次改动后让用户真机复验，**自动化 PASS 不算数**。
+6. 找到根因后把结论追加 DEVLOG 并标记"已同步"，再请用户批准同步 PROJECT.md。
+
+### 7. 环境备忘（新会话直接照用）
+
+- PowerShell 里 `sl` 是 `Set-Location` 别名，用 `sl.exe`。
+- esbuild 构建、electron e2e、electron-builder 都需要 `danger-full-access`（spawn EPERM）；DSH e2e 同理。
+- npm 安装用 `--cache <repo>\.npm-cache`；Electron 二进制补下用 `electron_config_cache=<repo>\.electron-cache`；builder 工具缓存 `ELECTRON_BUILDER_CACHE=<repo>\.electron-builder-cache`。
+- 测试命令：`node scripts/e2e-electron.mjs`（`DSH_PET_E2E_BINARY` 可指 dist 解包 exe；`DSH_PET_E2E_ROOT` 可指真实宠物目录）、`node scripts/e2e-sprite.mjs`、`node scripts/e2e-live2d.mjs`。
+- 当前 Sapling 栈（Phase 0+1 共 13 个 draft commit）顶部：
+  ```
+  c6626ddc docs(phase1): 记录拖动边界修复与真实鼠标验证
+  0c9efdb4 fix(phase1): 拖动偏移改窗口相对 + 主进程读系统光标，移除点击穿透竞态
+  c2aecd71 fix(phase1): 宠物窗口强制不抢焦点（focusable+blur 兜底）
+  0145f434 docs(phase1): 记录紧凑窗口修复与验证结果
+  aa7b84eb fix(phase1): 紧凑窗口替代全屏透明蒙版（拖动移动窗口，修复背后视频黑屏/失焦）
+  ...（更早的 Phase 0/1 提交见 smartlog）
+  ```
+- 工作区当前干净；未推送 PR（用户明确未确认）。
