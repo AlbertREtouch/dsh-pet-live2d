@@ -1,14 +1,14 @@
 /**
  * Parameter cockpit (试驾台) — a floating debug panel that drives the
  * Live2D model's parameters directly, for calibrating "parameter -> look"
- * mappings. Enabled by `?dsh-pet-debug=1` or localStorage dsh-pet:debug=1.
+ * mappings. Enabled by `?dsh-pet-debug=1`, localStorage dsh-pet:debug=1, or
+ * the host-controlled `debugPanel` prop (Electron tray menu).
  *
  * Sliders write into a shared overrides map; while an override exists the
  * automatic drivers leave that parameter alone, so each parameter can be
  * auditioned in isolation.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { probe } from "../probe.js";
 
 const RANGE_PATTERNS = [
 	[/Angle|BrowAngle/i, [-30, 30]],
@@ -25,14 +25,25 @@ function defaultRange(id) {
 	return [-1, 1];
 }
 
-export default function DebugPanel({ pet, overrides }) {
+/**
+ * The .cdi3.json parameter table normally sits next to the .model3.json with
+ * the same basename ("foo.model3.json" -> "foo.cdi3.json"). Derive it from
+ * the manifest instead of hardcoding a model-specific file.
+ */
+function cdi3Url(pet, assetBase) {
+	const base = String(pet?.model ?? "").replace(/(?:\.model3)?\.json$/i, "");
+	const cdiName = `${base.length > 0 ? base : pet.id}.cdi3.json`;
+	return `${assetBase}/pets/${encodeURIComponent(pet.id)}/assets/${encodeURIComponent(cdiName)}`;
+}
+
+export default function DebugPanel({ pet, overrides, assetBase = "/api", align = "left" }) {
 	const [params, setParams] = useState([]);
 	const [open, setOpen] = useState(false);
 	const [values, setValues] = useState({});
 
 	useEffect(() => {
 		let alive = true;
-		fetch(`/api/pets/${encodeURIComponent(pet.id)}/assets/352.cdi3.json`, { cache: "no-store" })
+		fetch(cdi3Url(pet, assetBase), { cache: "no-store" })
 			.then((r) => (r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`))))
 			.then((cdi) => {
 				if (!alive) return;
@@ -45,7 +56,7 @@ export default function DebugPanel({ pet, overrides }) {
 		return () => {
 			alive = false;
 		};
-	}, [pet.id]);
+	}, [pet.id, pet.model, assetBase]);
 
 	const setParam = useCallback(
 		(id, value) => {
@@ -108,8 +119,8 @@ export default function DebugPanel({ pet, overrides }) {
 	}
 	return (
 		<div
-			className="dsh-pet-debug-panel"
-			style={panelPos !== null ? { left: panelPos.x, top: panelPos.y } : undefined}
+			className={`dsh-pet-debug-panel${align === "right" ? " dsh-pet-debug-panel-right" : ""}`}
+			style={panelPos !== null ? (align === "right" ? { right: panelPos.x, top: panelPos.y } : { left: panelPos.x, top: panelPos.y }) : undefined}
 			onPointerDown={stop}
 			onPointerUp={stop}
 			onPointerMove={stop}

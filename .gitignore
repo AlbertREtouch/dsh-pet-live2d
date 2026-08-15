@@ -1,4 +1,9 @@
 node_modules/
+.npm-cache/
+.electron-cache/
+.electron-builder-cache/
+dist/
+.tmp-pet-root/
 lib/client.raw.js
 lib/client.raw.js.map
 lib/client-dsh-pet*.js

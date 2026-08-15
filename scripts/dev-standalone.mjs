@@ -1,9 +1,9 @@
 /**
  * dev-standalone: minimal preview server for the standalone pet.
  *
- * Serves pet.html + lib/standalone.js and mounts the pet route factory on
- * /api. Phase 1 turns this into the Electron in-process server; for now it
- * doubles as the real-browser regression harness for the shared kernel.
+ * Serves the shared standalone.html + lib/standalone.js and mounts the pet
+ * route factory on /api. Phase 1 uses the same page in the Electron shell;
+ * this server remains the no-shell debug/preview entry for real browsers.
  */
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
@@ -16,46 +16,37 @@ const port = Number(process.env.DSH_PET_DEV_PORT ?? 3410);
 const petsRoot = process.env.DSH_PET_ROOT ?? undefined;
 const petServer = createPetServer({ petsRoot });
 
-const PET_HTML = `<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>dsh-pet standalone preview</title>
-<style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
-#pet-root{position:fixed;inset:0}
-</style>
-</head>
-<body>
-<div id="pet-root"></div>
-<script src="/standalone.js"></script>
-<script>
-PetStandalone.mount({
-  target: document.getElementById("pet-root"),
-  assetBase: ${JSON.stringify(`http://127.0.0.1:${port}/api`)},
-});
-</script>
-</body>
-</html>`;
+const HTML = readFileSync(join(root, "standalone.html"), "utf8");
+const BUNDLE = () => readFileSync(join(root, "lib", "standalone.js"));
+const MAP = () => readFileSync(join(root, "lib", "standalone.js.map"));
 
 const server = createServer((req, res) => {
 	const pathname = new URL(req.url ?? "/", "http://x").pathname;
-	if (pathname === "/" || pathname === "/pet.html") {
+	if (pathname === "/" || pathname === "/standalone.html" || pathname === "/pet.html") {
 		res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-		res.end(PET_HTML);
+		res.end(HTML);
 		return;
 	}
-	if (pathname === "/standalone.js") {
-		const body = readFileSync(join(root, "lib", "standalone.js"));
-		res.writeHead(200, { "content-type": "text/javascript" });
-		res.end(body);
+	if (pathname === "/standalone.js" || pathname === "/lib/standalone.js") {
+		try {
+			const body = BUNDLE();
+			res.writeHead(200, { "content-type": "text/javascript" });
+			res.end(body);
+		} catch {
+			res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+			res.end("lib/standalone.js missing — run `npm run build:client` first");
+		}
 		return;
 	}
-	if (pathname === "/standalone.js.map") {
-		const body = readFileSync(join(root, "lib", "standalone.js.map"));
-		res.writeHead(200, { "content-type": "application/json" });
-		res.end(body);
+	if (pathname === "/standalone.js.map" || pathname === "/lib/standalone.js.map") {
+		try {
+			const body = MAP();
+			res.writeHead(200, { "content-type": "application/json" });
+			res.end(body);
+		} catch {
+			res.writeHead(404, {});
+			res.end();
+		}
 		return;
 	}
 	petServer.handleRequest(req, res);
