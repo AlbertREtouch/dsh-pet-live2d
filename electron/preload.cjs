@@ -4,8 +4,8 @@
  * The page only ever sees a few tiny, validated capabilities:
  *  - onSelectPet(cb): tray menu asks the renderer to switch skin
  *  - onSetDebug(cb): tray menu toggles the Live2D parameter cockpit
- *  - setIgnoreMouse(bool): click-through hit-testing for transparent margins
- *  - moveWindow(x, y): screen-space top-left of the compact shell window
+ *  - beginDrag({offsetX, offsetY}): start a pet drag (grab offset in window)
+ *  - dragMove(): main process re-reads the OS cursor and moves the window
  *  - setPetBounds({width, height}): pet element size (shell resizes around it)
  *  - dragEnd(): persist the final window position after a drag
  *  - reportPet(id): tell the main process which skin is actually mounted
@@ -26,11 +26,14 @@ contextBridge.exposeInMainWorld("dshPetDesktop", {
 			callback(Boolean(enabled));
 		});
 	},
-	setIgnoreMouse(ignore) {
-		ipcRenderer.send("dsh-pet:set-ignore-mouse", Boolean(ignore));
+	beginDrag(offset) {
+		ipcRenderer.send("dsh-pet:drag-start", {
+			offsetX: Number(offset?.offsetX),
+			offsetY: Number(offset?.offsetY),
+		});
 	},
-	moveWindow(x, y) {
-		ipcRenderer.send("dsh-pet:move-window", Number(x), Number(y));
+	dragMove() {
+		ipcRenderer.send("dsh-pet:drag-move");
 	},
 	setPetBounds(bounds) {
 		ipcRenderer.send("dsh-pet:set-pet-bounds", {

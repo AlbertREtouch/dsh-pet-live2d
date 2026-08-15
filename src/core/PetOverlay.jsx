@@ -173,7 +173,7 @@ export function PetOverlay({
 		debugPanel = false,
 		desktopWindow = null,
 	}) {
-		const isDesktop = desktopWindow !== null && typeof desktopWindow?.moveTo === "function";
+		const isDesktop = desktopWindow !== null && typeof desktopWindow?.beginDrag === "function";
 		const desktopRef = useRef(desktopWindow);
 		desktopRef.current = desktopWindow;
 		const pets = usePets(fetchPets, probe);
@@ -315,13 +315,16 @@ export function PetOverlay({
 		}, [mood]);
 
 		// Drag to move. In the compact Electron shell the pet stays fixed inside
-		// its window and the WINDOW is moved under the pointer (screenX/screenY
-		// minus the grab offset); in DSH/dev the pet moves inside the viewport.
+		// its window and the WINDOW is moved: the renderer only reports the grab
+		// offset once and then asks the main process to re-read the OS cursor —
+		// never feed renderer screenX/screenY back while the window is moving.
 		const onPointerDown = useCallback((e) => {
 			if (e.button !== 0) return;
 			const target = e.currentTarget;
 			const base = positionRef.current ?? { x: 0, y: 0 };
 			const rect = target.getBoundingClientRect();
+			const grabX = e.clientX - rect.left;
+			const grabY = e.clientY - rect.top;
 			dragRef.current = {
 				startX: e.clientX,
 				startY: e.clientY,
@@ -329,11 +332,19 @@ export function PetOverlay({
 				baseY: base.y,
 				x: base.x,
 				y: base.y,
-				grabX: e.clientX - rect.left,
-				grabY: e.clientY - rect.top,
+				grabX,
+				grabY,
 				moved: false,
 				pointerId: e.pointerId,
 			};
+			const desktop = desktopRef.current;
+			if (desktop !== null && typeof desktop.beginDrag === "function") {
+				// Offset must be relative to the WINDOW, not to the pet element:
+				// the shell has bubble padding above/left of the pet, and using
+				// pet-relative offsets makes every horizontal drag drift right by
+				// the left padding and every drag drift down by the top padding.
+				desktop.beginDrag({ offsetX: e.clientX, offsetY: e.clientY });
+			}
 			try {
 				target.setPointerCapture(e.pointerId);
 			} catch {
@@ -348,10 +359,8 @@ export function PetOverlay({
 			if (!drag.moved && Math.hypot(dx, dy) < 4) return;
 			if (!drag.moved) drag.moved = true;
 			const desktop = desktopRef.current;
-			if (desktop !== null && typeof desktop.moveTo === "function" && Number.isFinite(e.screenX) && Number.isFinite(e.screenY)) {
-				drag.x = e.screenX - drag.grabX;
-				drag.y = e.screenY - drag.grabY;
-				desktop.moveTo(drag.x, drag.y);
+			if (desktop !== null && typeof desktop.dragMove === "function") {
+				desktop.dragMove();
 				return;
 			}
 			const vw = window.innerWidth;

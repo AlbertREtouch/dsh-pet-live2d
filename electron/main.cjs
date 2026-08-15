@@ -47,6 +47,8 @@ const state = {
 	position: { x: null, y: null },
 	saveTimer: null,
 	positionFile: null,
+	dragOffset: null,
+	e2eCursor: null,
 };
 
 async function loadPetModule() {
@@ -121,6 +123,25 @@ function currentSize() {
 	return DEFAULT_WINDOW;
 }
 
+/**
+ * The OS cursor position is authoritative during a drag. Renderer-reported
+ * screenX/screenY can feed back on themselves once the window starts moving
+ * under the pointer, which drifts the window toward the bottom-right. The
+ * e2eCursor override exists only for the synthetic drag smoke test.
+ */
+function readCursor() {
+	return state.e2eCursor ?? screen.getCursorScreenPoint();
+}
+
+function moveWindowTo(x, y) {
+	if (state.win === null || state.win.isDestroyed()) return;
+	const size = currentSize();
+	const bounds = clampBounds({ x, y, width: size.width, height: size.height });
+	state.position = { x: bounds.x, y: bounds.y };
+	state.win.setPosition(bounds.x, bounds.y, false);
+	scheduleSavePosition();
+}
+
 function compactSize() {
 	const petWidth = state.petBounds.width ?? 106;
 	const petHeight = state.petBounds.height ?? 114;
@@ -189,9 +210,10 @@ function createWindow() {
 		},
 	});
 	state.win.setAlwaysOnTop(true, "floating");
-	// Transparent margins of the compact window are click-through; the
-	// renderer re-enables interaction only over the pet/hint/debug surfaces.
-	state.win.setIgnoreMouseEvents(true, { forward: true });
+	// The compact window is always mouse-interactive. There is no full-screen
+	// mask anymore, so no hover-toggled click-through is needed (and toggling
+	// ignore-mouse mid-hover is exactly what used to steal focus/occlude the
+	// app behind the pet).
 	state.win.loadFile(path.join(__dirname, "..", "standalone.html"), {
 		query: { assetBase: buildAssetBase() },
 	});
@@ -324,10 +346,6 @@ async function startPetServer() {
 }
 
 function installIpc() {
-	ipcMain.on("dsh-pet:set-ignore-mouse", (event, ignore) => {
-		if (state.win === null || event.sender !== state.win.webContents) return;
-		state.win.setIgnoreMouseEvents(Boolean(ignore), { forward: true });
-	});
 	ipcMain.on("dsh-pet:report-pet", (event, raw) => {
 		if (state.win === null || event.sender !== state.win.webContents) return;
 		if (typeof raw === "string" && SAFE_ID.test(raw) && raw !== state.currentPetId) {
@@ -335,19 +353,25 @@ function installIpc() {
 			rebuildMenu();
 		}
 	});
-	// Renderer computes the screen-space top-left of the window while the
-	// pet is dragged (pointer screenX/Y minus the grab offset inside the pet).
-	ipcMain.on("dsh-pet:move-window", (event, x, y) => {
+	// Renderer signals drag start with the grab offset inside the pet; every
+	// subsequent move reads the OS cursor position here in the main process.
+	// Do NOT trust renderer screenX/screenY while the window is moving under
+	// the pointer — they feed back on themselves and drift the window.
+	ipcMain.on("dsh-pet:drag-start", (event, payload) => {
 		if (state.win === null || event.sender !== state.win.webContents) return;
-		if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) return;
-		const size = currentSize();
-		const bounds = clampBounds({ x, y, width: size.width, height: size.height });
-		state.position = { x: bounds.x, y: bounds.y };
-		state.win.setPosition(bounds.x, bounds.y, false);
-		scheduleSavePosition();
+		const offsetX = payload?.offsetX;
+		const offsetY = payload?.offsetY;
+		if (typeof offsetX !== "number" || typeof offsetY !== "number" || !Number.isFinite(offsetX) || !Number.isFinite(offsetY)) return;
+		state.dragOffset = { x: offsetX, y: offsetY };
+	});
+	ipcMain.on("dsh-pet:drag-move", (event) => {
+		if (state.win === null || event.sender !== state.win.webContents || state.dragOffset === null) return;
+		const cursor = readCursor();
+		moveWindowTo(cursor.x - state.dragOffset.x, cursor.y - state.dragOffset.y);
 	});
 	ipcMain.on("dsh-pet:drag-end", (event) => {
 		if (state.win === null || event.sender !== state.win.webContents) return;
+		state.dragOffset = null;
 		savePosition();
 	});
 	ipcMain.on("dsh-pet:set-pet-bounds", (event, payload) => {
@@ -458,10 +482,12 @@ async function runE2E() {
 			cockpitToggled = true;
 		}
 
-		// Synthetic pointer drag: verifies the renderer turns a pet drag into
-		// a screen-space window move (the whole point of the compact shell).
+		// Synthetic pointer drag: verifies the renderer turns a pet drag into a
+		// main-process cursor read + window move (the whole point of the
+		// compact shell). e2eCursor stands in for the real OS cursor.
 		let dragMoved = null;
 		const beforeDrag = state.win.getPosition();
+		state.e2eCursor = { x: beforeDrag[0] + 48, y: beforeDrag[1] + 36 };
 		const dragDispatched = await state.win.webContents.executeJavaScript(
 			`(() => {
 				const pet = document.querySelector(".dsh-pet");
@@ -495,6 +521,7 @@ async function runE2E() {
 				dragMoved = false;
 			}
 		}
+		state.e2eCursor = null;
 		const bounds = state.win.getBounds();
 		const result = {
 			port: state.port,
