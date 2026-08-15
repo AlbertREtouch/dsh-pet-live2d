@@ -196,6 +196,15 @@ function createWindow() {
 		query: { assetBase: buildAssetBase() },
 	});
 	state.win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+	// Hard guarantee: the pet is a pure mouse overlay and must NEVER take
+	// keyboard/activation focus from the app the user is working in. This
+	// covers Windows "activate on hover" settings and any transient focus
+	// caused by the click-through hit-test toggling.
+	state.win.on("focus", () => {
+		if (!state.quitting && state.win !== null && !state.win.isDestroyed()) {
+			state.win.blur();
+		}
+	});
 	state.win.on("close", (event) => {
 		if (!state.quitting) {
 			event.preventDefault();

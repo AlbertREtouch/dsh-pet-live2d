@@ -560,6 +560,7 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 
 - **根因**：旧壳 `BrowserWindow` 尺寸 = 整个主显示器工作区，透明部分只是"看不见"，但仍是覆盖全屏的窗口；交互时整窗参与命中/遮挡。
 - **修法**：壳改为**紧凑窗口**（宠物尺寸 + 气泡边距 24/64/24/8），拖动宠物 = 用 `pointer.screenX/Y - 抓取偏移` 计算窗口屏幕坐标，`win.setPosition` 移动窗口；皮肤尺寸变化时 renderer 上报 `{width,height}`，main 自动 `setBounds`。
+- **失焦硬保证**：窗口保持 `focusable:false`，并监听 `focus` 事件立即 `blur()`——覆盖 Windows"悬停激活窗口"设置，划过/点击宠物都绝不抢走前台应用的键盘焦点。
 - **位置持久化**：从 localStorage 改为应用 userData 的 `shell-position.json`（main 进程 debounce 写入）；旧全屏位置（工作区原点）自动识别为 legacy 并回落默认右下角。
 - **试驾台**：开启时窗口临时扩宽（面板右侧对齐，避免与宠物重叠），关闭恢复紧凑。
 - **顺带修了组件重挂载 bug**：`PetOverlay` 内层 `Overlay` 原本每次渲染都创建新组件类型，托盘开关/切肤会整体卸载重挂、闪 hint；现在用稳定组件身份 + 显式 props，状态保留。
