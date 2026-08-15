@@ -6,6 +6,7 @@
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
+    "./server": "./lib/index.js",
     "./client": "./lib/client.js",
     "./standalone": "./lib/standalone.js",
     "./package.json": "./package.json"
@@ -16,6 +17,8 @@
     "lib/client.js.map",
     "lib/standalone.js",
     "lib/standalone.js.map",
+    "standalone.html",
+    "electron/",
     "cordis.patch.yml"
   ],
   "dsh": {
@@ -30,9 +33,16 @@
     "build:client": "node scripts/build-client.mjs",
     "build:sample-source": "node scripts/make-sample-source.mjs",
     "build:sample-pet": "node .dsh/skills/pet-hatch/build-atlas.mjs --source sample-source.png --name dsh-kitten --display-name \"DSH Kitten\" --description \"A tiny pixel kitten that watches you code.\" --out sample-pet --format webp",
-    "build:all": "node scripts/make-sample-source.mjs && node .dsh/skills/pet-hatch/build-atlas.mjs --source sample-source.png --name dsh-kitten --display-name \"DSH Kitten\" --description \"A tiny pixel kitten that watches you code.\" --out sample-pet --format webp && node scripts/build-client.mjs"
+    "build:all": "node scripts/make-sample-source.mjs && node .dsh/skills/pet-hatch/build-atlas.mjs --source sample-source.png --name dsh-kitten --display-name \"DSH Kitten\" --description \"A tiny pixel kitten that watches you code.\" --out sample-pet --format webp && node scripts/build-client.mjs",
+    "make:tray-icon": "node scripts/make-tray-icon.mjs",
+    "electron": "node scripts/build-client.mjs && electron electron/main.cjs",
+    "e2e:electron": "node scripts/e2e-electron.mjs",
+    "pack": "electron-builder",
+    "pack:dir": "electron-builder --dir"
   },
   "devDependencies": {
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
     "pixi-live2d-display": "^0.4.0",
     "pixi.js": "^6.5.10",
@@ -42,8 +52,49 @@
     "sharp": "^0.34.0",
     "url": "^0.11.4"
   },
+  "build": {
+    "appId": "dev.dsh.pet",
+    "productName": "DSH Pet",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "lib/index.js",
+      "lib/standalone.js",
+      "lib/standalone.js.map",
+      "standalone.html",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        },
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    }
+  },
   "license": "MIT",
   "allowScripts": {
+    "electron@43.4.0": true,
+    "electron-winstaller@5.4.0": true,
     "esbuild@0.25.12": true,
     "sharp@0.34.5": true
   }
