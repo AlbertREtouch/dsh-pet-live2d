@@ -549,3 +549,29 @@ node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可
 - [ ] Phase 1 最终验收（用户手动按测试清单过一遍）
 - [ ] 验收通过后同步 PROJECT.md §2/§6 Phase 1 状态并标记本批条目"已同步"
 - [ ] 推送 PR（`sl pr submit --stack`，等用户确认）
+
+---
+
+## [2026-08-15 23:05] Phase 1 修复：全屏透明蒙版 → 紧凑窗口（视频黑屏/失焦） — 已确认
+
+> 用户实测报告：拖动/点击宠物时背后的网页"卡住"，视频黑屏只有声音，点回网页才恢复。诊断正确——旧壳是**覆盖整个工作区的透明 always-on-top 窗口**，鼠标进入宠物时整窗变为可交互，Windows 会把背后应用当作被遮挡/失焦。
+
+### 根因与修法
+
+- **根因**：旧壳 `BrowserWindow` 尺寸 = 整个主显示器工作区，透明部分只是"看不见"，但仍是覆盖全屏的窗口；交互时整窗参与命中/遮挡。
+- **修法**：壳改为**紧凑窗口**（宠物尺寸 + 气泡边距 24/64/24/8），拖动宠物 = 用 `pointer.screenX/Y - 抓取偏移` 计算窗口屏幕坐标，`win.setPosition` 移动窗口；皮肤尺寸变化时 renderer 上报 `{width,height}`，main 自动 `setBounds`。
+- **位置持久化**：从 localStorage 改为应用 userData 的 `shell-position.json`（main 进程 debounce 写入）；旧全屏位置（工作区原点）自动识别为 legacy 并回落默认右下角。
+- **试驾台**：开启时窗口临时扩宽（面板右侧对齐，避免与宠物重叠），关闭恢复紧凑。
+- **顺带修了组件重挂载 bug**：`PetOverlay` 内层 `Overlay` 原本每次渲染都创建新组件类型，托盘开关/切肤会整体卸载重挂、闪 hint；现在用稳定组件身份 + 显式 props，状态保留。
+- **顺带修 hint 定位**：`.dsh-pet-anchor` 补 `width/height:100vw/100vh`，无宠物提示不再偏移。
+
+### 验证（全 PASS）
+
+- ✅ `e2e-electron`：紧凑窗口 bounds 正确（sprite 154×187 / Live2D 288×412）；**合成 pointer 拖拽 → 窗口真实移动**（`dragMoved:true`）；Live2D 试驾台开/关正常。
+- ✅ 真实宠物目录（anko）与打包后 `dist/win-unpacked/DSH Pet.exe` 均 PASS。
+- ✅ `e2e-sprite` / `e2e-live2d`（DSH 实机）PASS；smoke/unit 全绿。
+
+### 待办
+
+- [ ] 用户按"背后放视频 → 拖动/点击宠物"场景复验
+- [ ] 通过后同步 PROJECT.md（§2/§6 Phase 1 完成状态 + 本节要点）并标记"已同步"
