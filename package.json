@@ -7,12 +7,15 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./standalone": "./lib/standalone.js",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/client.js",
     "lib/client.js.map",
+    "lib/standalone.js",
+    "lib/standalone.js.map",
     "cordis.patch.yml"
   ],
   "dsh": {
@@ -34,6 +37,8 @@
     "pixi-live2d-display": "^0.4.0",
     "pixi.js": "^6.5.10",
     "puppeteer-core": "^25.6.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "sharp": "^0.34.0",
     "url": "^0.11.4"
   },

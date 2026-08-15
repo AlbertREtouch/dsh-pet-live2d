@@ -19,8 +19,10 @@
 
 | 层 | 文件 | 作用 |
 |---|---|---|
-| 播放器（client plugin） | `src/client/` → `lib/client.js` | 注册进 `shell.overlay` slot；订阅会话快照；渲染图集或 Live2D 模型；处理拖动/点击/右键；驱动参数动画 |
-| 资产服务（host plugin） | `lib/index.js` | 注册 `/api/pets`（列表）、`/api/pets/<id>/spritesheet`（图集字节）、`/api/pets/<id>/assets/<路径>`（Live2D 模型文件，带路径穿越防护）；扫描 `~/.dsh/pets/<id>/`；`POST /api/pets/echo` 诊断通道 |
+| 播放器（client plugin） | `src/client/index.js` → `lib/client.js` | DSH 胶水：注册进 `shell.overlay` slot；接线会话/宠物目录/诊断 |
+| 共享内核 | `src/core/` | `PetOverlay`（渲染+拖动/点击/右键）、`PetStateBus`、性格预设；只认状态源与配置，不认 DSH |
+| 状态源适配器 | `src/adapters/` | `dsh-state.js`（ctx.sessions → PetState）、`mock.js`（standalone 演示源） |
+| 资产服务（host plugin） | `lib/index.js` | `createPetServer()` 工厂：注册 `/api/pets` 路由或直接挂到裸 `http.createServer`；带路径穿越/坏 URI/echo 上限防护 |
 | 生成器（skill） | `.dsh/skills/pet-hatch/` | 从一张图生成 Codex 兼容的像素图集（1536×1872，8×9 格，192×208/格）+ `pet.json` |
 
 ## 安装
@@ -136,8 +138,10 @@ node .dsh/skills/pet-hatch/build-atlas.mjs \
 ## 开发与测试
 
 ```bash
-npm run build:client          # esbuild 打包 + 包裹；DSH_PET_BUNDLE_ID 可换 bundle id
-node scripts/smoke-client.mjs # Node 桩环境：bundle 执行 + apply 接线
+npm run build:client          # esbuild 双目标：DSH bundle（lib/client.js）+ standalone bundle（lib/standalone.js，含 React）
+node scripts/smoke-client.mjs # Node 桩环境：DSH bundle 执行 + apply 接线
+node scripts/smoke-standalone.mjs # Node 桩环境：standalone bundle 执行（不依赖 DSH seed table）
+node scripts/test-pet-server.mjs  # createPetServer：目录/图集/穿越/坏 URI/echo 上限/HEAD/junction
 node scripts/e2e-live2d.mjs   # headless Edge 端到端：动作触发/视线/拖拽/试驾台/渲染覆盖率
 node scripts/frame-strip.mjs  # 动作帧条预览
 node scripts/part-analysis.mjs <参数名>  # 参数→组件顶点位移测量
@@ -147,9 +151,13 @@ node scripts/breath-analysis.mjs         # 单参数的区域像素影响分析
 ## 目录结构
 
 ```
-lib/index.js                    宿主插件：/api/pets 路由 + 目录扫描（零依赖）
-lib/client.js                   构建产物：__ModuleLoader__ factory 包裹的 client bundle（已提交）
-src/client/                     播放器源码（React；live2d/ 内含 Live2D 引导与渲染器）
+lib/index.js                    宿主插件：createPetServer + /api/pets 路由（零依赖）
+lib/client.js                   构建产物：__ModuleLoader__ factory 包裹的 DSH client bundle（已提交）
+lib/standalone.js               构建产物：standalone IIFE bundle（React 已打进，无 DSH seed）
+src/client/                     DSH 播放器入口 + Live2D 渲染器（live2d/ 内为必须保留的核心）
+src/core/                       共享内核：PetOverlay / PetStateBus / 性格预设
+src/adapters/                   状态源适配器：dsh / mock
+src/entries/                    standalone 入口（Electron/pet.html 用）
 scripts/                        构建与测试工具链
 .dsh/skills/pet-hatch/          pet-hatch skill（SKILL.md + 图集构建器）
 motions-specs/                  动作规格示例 + 参数校准记录示例

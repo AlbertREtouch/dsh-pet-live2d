@@ -1,21 +1,27 @@
 /**
- * Build the dsh-pet client bundle.
+ * Build the two client bundles:
  *
- * The DSH browser runtime loads client plugins as classic scripts that call
- * `window.__ModuleLoader__.load({ id, factory })`. The factory receives the
- * module loader's `require` and returns the plugin's export surface
- * (`{ apply, inject }` object plugin for the vendored Cordis loader).
+ * 1. DSH plugin bundle (`lib/client.js`): the DSH browser runtime loads
+ *    client plugins as classic scripts that call
+ *    `window.__ModuleLoader__.load({ id, factory })`. Platform modules
+ *    (react family) stay external — they resolve against the shell's frozen
+ *    seed table — everything else is bundled.
  *
- * This script bundles src/client/index.js with esbuild (CJS, platform
- * modules external — they resolve against the shell's frozen seed table) and
- * wraps the output in the loader call, mirroring the published tsdown format.
+ * 2. Standalone bundle (`lib/standalone.js`): same shared kernel, IIFE with
+ *    React BUNDLED. The pet.html dev preview and the future Electron shell
+ *    load this file with no platform seed table.
+ *
+ * Both share the node-builtin stubs and the Cubism Core TEXT packaging.
  */
 import { build } from "esbuild";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+import { fileURLToPath } from "node:url";
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const bundleId = process.env.DSH_PET_BUNDLE_ID ?? "dsh-pet";
-const outfile = join(root, "lib", `client${bundleId === "dsh-pet" ? "" : `-${bundleId}`}.js`);
+
+const dshOutfile = join(root, "lib", `client${bundleId === "dsh-pet" ? "" : `-${bundleId}`}.js`);
+const standaloneOutfile = join(root, "lib", "standalone.js");
 
 // The seed table the web shell shares with every bundle (PLATFORM_MODULES +
 // react family). Everything else must be bundled.
@@ -68,26 +74,37 @@ const live2dCoreTextPlugin = {
 	},
 };
 
-const result = await build({
-	entryPoints: [join(root, "src", "client", "index.js")],
-	outfile: join(root, "lib", "client.raw.js"),
-	bundle: true,
+async function bundle({ entry, outfile, format, globalName, external }) {
+	const result = await build({
+		entryPoints: [join(root, entry)],
+		outfile,
+		bundle: true,
+		format,
+		globalName,
+		platform: "browser",
+		target: ["es2020"],
+		jsx: "automatic",
+		loader: { ".js": "jsx", ".jsx": "jsx" },
+		external,
+		plugins: [nodeBuiltinsPlugin, live2dCoreTextPlugin],
+		sourcemap: "external",
+		minify: false,
+		logLevel: "info",
+		write: false,
+	});
+	const body = result.outputFiles.find((f) => f.path.endsWith(".js"))?.text;
+	const map = result.outputFiles.find((f) => f.path.endsWith(".map"))?.text;
+	if (body === undefined) throw new Error(`esbuild produced no bundle output for ${entry}`);
+	return { body, map };
+}
+
+// 1) DSH plugin bundle, wrapped in the loader factory.
+const dsh = await bundle({
+	entry: "src/client/index.js",
+	outfile: dshOutfile,
 	format: "cjs",
-	platform: "browser",
-	target: ["es2020"],
-	jsx: "automatic",
-	loader: { ".js": "jsx" },
 	external: externals,
-	plugins: [nodeBuiltinsPlugin, live2dCoreTextPlugin],
-	sourcemap: "external",
-	minify: false,
-	logLevel: "info",
-	write: false,
 });
-
-const body = result.outputFiles.find((f) => f.path.endsWith(".js"))?.text;
-if (body === undefined) throw new Error("esbuild produced no bundle output");
-
 const wrapper = [
 	"window.__ModuleLoader__.load({",
 	`\tid: ${JSON.stringify(bundleId)},`,
@@ -95,14 +112,24 @@ const wrapper = [
 	"\t\tvar module = { exports: {} };",
 	"\t\tvar exports = module.exports;",
 	"\t\tObject.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });",
-	body,
+	dsh.body,
 	"\t\treturn module.exports;",
 	"\t}",
 	"});",
 	"",
 ].join("\n");
+writeFileSync(dshOutfile, wrapper);
+if (dsh.map !== undefined) writeFileSync(`${dshOutfile}.map`, dsh.map);
+console.log(`dsh-pet client bundle written: ${dshOutfile} (${readFileSync(dshOutfile).length} bytes)`);
 
-writeFileSync(outfile, wrapper);
-const map = result.outputFiles.find((f) => f.path.endsWith(".map"));
-if (map !== undefined) writeFileSync(`${outfile}.map`, map.text);
-console.log(`dsh-pet client bundle written: ${outfile} (${readFileSync(outfile).length} bytes)`);
+// 2) Standalone bundle: React must be included (no DSH seed table).
+const standalone = await bundle({
+	entry: "src/entries/standalone.js",
+	outfile: standaloneOutfile,
+	format: "iife",
+	globalName: "PetStandalone",
+	external: [],
+});
+writeFileSync(standaloneOutfile, standalone.body);
+if (standalone.map !== undefined) writeFileSync(`${standaloneOutfile}.map`, standalone.map);
+console.log(`standalone bundle written: ${standaloneOutfile} (${readFileSync(standaloneOutfile).length} bytes)`);

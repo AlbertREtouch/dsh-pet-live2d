@@ -344,3 +344,31 @@ interface PetStateSource {
 - 上游同步策略正式记录为**不跟进**（本项目按自己的方向做）。
 - DEVLOG 本批条目（18:43 / 19:14 / 19:27）全部标记"已同步"。
 - 下一步：Phase 0 机械解耦（零行为变化）。
+
+---
+
+## [2026-08-14 19:58] Phase 0 实施完成（代码层） — 待同步
+
+### 已完成
+
+1. **目录分层**：新增 `src/core/`（PetOverlay / PetStateBus / personality）、`src/adapters/`（dsh-state / mock）、`src/entries/`（standalone）；`src/client/live2d/` 核心渲染器除注射化外未动。
+2. **注射化**：`PetLive2D` 的模型 URL 改由 `assetBase` props 注入、`probe` 改为注入回调（默认 no-op）；`PetOverlay` 只消费 `stateSource`/`fetchPets`/`probe`/`assetBase`/`personality`。
+3. **状态抽象**：`PetState {version, source, activity, detail}` + `PetStateSource {subscribe/getSnapshot/dispose}`；DSH 订阅逻辑与 `deriveState` 原样搬进 `src/adapters/dsh-state.js`；本地交互 one-shot 与状态源派生态分层。
+4. **性格/皮肤数据结构**：`DEFAULT_PERSONALITY`（交互手势、状态→图集行映射、气泡文案），未知状态回落 idle。
+5. **入口瘦身**：`src/client/index.js` 只剩 apply/inject/CSS 注入接线；删除了 `vx/vy` 死代码和过时交互注释；新增 `src/entries/standalone.js`（IIFE 目标，React 打进 bundle）。
+6. **服务工厂**：`lib/index.js` 导出 `createPetServer({petsRoot, echoPath, log})`，返回 `handleRequest` + `register`；DSH apply 与裸 Node server 共用同一路由。
+7. **安全修复**：坏 URI→400；echo body 限 64KB→413 且自动建日志父目录；资产路径 realpath + relative 校验（junction 逃逸→403）；HEAD 不返回 body；listPets 跳过根目录外的 junction。
+8. **双目标构建**：`build-client.mjs` 同时产出 `lib/client.js`（DSH，React external）与 `lib/standalone.js`（IIFE，React 打入）；package.json 补 react/react-dom devDeps 与 `./standalone` export。
+
+### 验证结果
+
+- ✅ `scripts/smoke-client.mjs`（DSH bundle 执行 + apply 接线）
+- ✅ `scripts/smoke-standalone.mjs`（standalone 不依赖 DSH seed table）
+- ✅ `scripts/test-pet-server.mjs`（目录/图集/穿越/坏 URI/echo 上限/HEAD/junction 全部 PASS）
+- ✅ `scripts/test-host-logic.mjs`
+- ⏳ `scripts/e2e-live2d.mjs`：需真实 DSH web + Edge 环境，待实机跑；行为零变化的最终确认以 DSH 实机为准
+
+### 待办
+
+- [ ] DSH 实机回归（试驾台/拖拽/动作/Live2D 正常）
+- [ ] 用户确认后把本条目同步进 PROJECT.md（已同步）并推送 Phase 0 提交

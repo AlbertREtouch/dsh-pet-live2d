@@ -19,8 +19,8 @@
 
 - 插件形态可用：浏览器半注册 `shell.overlay`，服务端半注册 `/api/pets` 路由。
 - 已确认的架构演进方向：把宠物从 DSH 插件形态解耦为**独立主体**，DSH 降级为状态源之一。
-- 最新进展：完成架构 review 与设计（见 DEVLOG 2026-08-14 三条），即将开始 **Phase 0 机械解耦**。
-- 关键测试基线：`test-host-logic.mjs` ✅、`smoke-client.mjs` ✅；`e2e-live2d.mjs` 需 Edge 环境。
+- 最新进展：**Phase 0 代码实施完成，待 DSH 实机回归**（目录分层 / createPetServer / 双目标构建 / 安全修复已落地；详见 DEVLOG 2026-08-14 19:58 条目，待同步）。
+- 关键测试基线：`test-host-logic.mjs` ✅、`smoke-client.mjs` ✅、`smoke-standalone.mjs` ✅、`test-pet-server.mjs` ✅；`e2e-live2d.mjs` 需 DSH web + Edge 实机环境。
 
 ## 3. 核心设计决策（已确认，改动需用户重新批准）
 
@@ -40,8 +40,10 @@
 
 | 层 | 文件 | 作用 |
 |---|---|---|
-| 播放器（client plugin） | `src/client/index.js` → `lib/client.js` | 注册 `shell.overlay`；订阅会话快照；渲染像素图集 / Live2D；拖动/单击/右键；参数驱动 |
-| 资产服务（host plugin） | `lib/index.js` | `GET /api/pets`、`GET /api/pets/<id>/spritesheet`、`GET /api/pets/<id>/assets/<路径>`、`POST /api/pets/echo`；扫描 `~/.dsh/pets/<id>/` |
+| 播放器（client plugin） | `src/client/index.js` → `lib/client.js` | DSH 胶水：注册 `shell.overlay`；接线会话/宠物目录/诊断 |
+| 共享内核 | `src/core/` | `PetOverlay`（渲染+交互）、`PetStateBus`、性格预设；不感知 DSH |
+| 状态源适配器 | `src/adapters/` | `dsh-state.js`（ctx.sessions → PetState）、`mock.js`（演示源） |
+| 资产服务（host plugin） | `lib/index.js` | `createPetServer()` 工厂：DSH 注册或裸 `http.createServer`；扫描 `~/.dsh/pets/<id>/` |
 | Live2D 渲染器 | `src/client/live2d/PetLive2D.js`（326 行） | PIXI 240×340 透明 canvas；`autoUpdate:false` + `beforeModelUpdate` 参数写入 |
 | Cubism Core 引导 | `src/client/live2d/setup.js`（20 行） | 文本打包 + 间接 eval，**原样保留** |
 | motion 生产线 | `scripts/` + `motions-specs/` | motion-gen / frame-strip / part-analysis / breath-analysis |
@@ -84,6 +86,9 @@ interface PetStateSource {
 ## 6. 路线图
 
 ### Phase 0：机械解耦（零行为变化，随时可回退）
+
+> 状态：1-8 代码完成；9 中四项非 e2e 测试全绿，e2e 待 DSH 实机。
+
 1. 目录分层：core / adapters / entries，核心文件内容一行不动（注释级修正除外）。
 2. `PetLive2D` 注射化：模型 URL、`probe` 回调改 props/注入。
 3. 抽 `PetStateBus` + DSH 适配器（订阅逻辑 + `deriveState` 原样搬移）。
