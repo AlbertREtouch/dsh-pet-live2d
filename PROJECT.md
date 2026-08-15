@@ -19,8 +19,8 @@
 
 - 插件形态可用：浏览器半注册 `shell.overlay`，服务端半注册 `/api/pets` 路由。
 - 已确认的架构演进方向：把宠物从 DSH 插件形态解耦为**独立主体**，DSH 降级为状态源之一。
-- 最新进展：**Phase 0 代码实施完成并通过 DSH 实机 sprite 回归**（目录分层 / createPetServer / 双目标构建 / 安全修复已落地；详见 DEVLOG 2026-08-14 19:58 条目，待同步）。
-- 关键测试基线：`test-host-logic.mjs` ✅、`smoke-client.mjs` ✅、`smoke-standalone.mjs` ✅、`test-pet-server.mjs` ✅、`e2e-sprite.mjs`（DSH 实机）✅；`e2e-live2d.mjs` 需 Live2D 模型（本机暂无）。
+- 最新进展：**Phase 0 完成并通过 DSH 实机全量回归**（sprite + Live2D e2e 全 PASS；目录分层 / createPetServer / 双目标构建 / 安全修复已落地；详见 DEVLOG 2026-08-14 19:58 条目，待同步）。
+- 关键测试基线：`test-host-logic.mjs` ✅、`smoke-client.mjs` ✅、`smoke-standalone.mjs` ✅、`test-pet-server.mjs` ✅、`e2e-sprite.mjs`（DSH 实机）✅、`e2e-live2d.mjs`（DSH 实机，用户提供模型）✅。
 
 ## 3. 核心设计决策（已确认，改动需用户重新批准）
 
@@ -87,7 +87,7 @@ interface PetStateSource {
 
 ### Phase 0：机械解耦（零行为变化，随时可回退）
 
-> 状态：1-8 代码完成；9 中四项非 e2e 测试全绿，e2e 待 DSH 实机。
+> 状态：✅ 完成（1-9 全部落地；四项非 e2e 测试 + sprite/Live2D 两个 DSH 实机 e2e 全绿）。
 
 1. 目录分层：core / adapters / entries，核心文件内容一行不动（注释级修正除外）。
 2. `PetLive2D` 注射化：模型 URL、`probe` 回调改 props/注入。
@@ -107,6 +107,7 @@ interface PetStateSource {
 - 里程碑：不装 DSH 也能双击打开活宠物。
 
 ### Phase 2：反客为主（宠物启动 DSH）
+- **首批功能（已确认，2026-08-14）**：提醒 + 快捷批准——会话 `pending` 展开成气泡提醒（`attention` 节奏可配置）；批准/拒绝用气泡旁 **✓/✕ 按钮**；状态源增加可选 `perform(action)` 跨进程动作通道；单选提问渲染选项按钮，复杂提问引导回 DSH 界面。
 - 先探测 DSH 是否已运行，已运行则复用，绝不双开；端口可配置（默认 3080）。
 - 未运行时 `detached + unref` 拉起 `dsh web`；**宠物退出绝不关闭 DSH**。
 - 嵌入模式：`?dsh-pet-embed=1` 且 `window.self !== window.top`；插件只报告状态不渲染；`postMessage` 双向 origin 白名单，拒绝 `*`；消息带 `version`。

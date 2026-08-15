@@ -367,7 +367,7 @@ interface PetStateSource {
 - ✅ `scripts/test-pet-server.mjs`（目录/图集/穿越/坏 URI/echo 上限/HEAD/junction 全部 PASS）
 - ✅ `scripts/test-host-logic.mjs`
 - ✅ `scripts/e2e-sprite.mjs`（**DSH 实机**：boot 含 dsh-pet、精灵渲染、拖拽持久化、无 pageerror）
-- ⏳ `scripts/e2e-live2d.mjs`：需真实 Live2D 模型（本机无 `.moc3`），待有模型后补跑
+- ✅ `scripts/e2e-live2d.mjs`（**DSH 实机**：用户提供模型 `C:\MyCodeProject\petAsset\pet\352`，装入 `~/.dsh/pets/anko`；motion-gen 现场生成 TapBody/Sad/Drowse/IdleVar 后，动作/视线/拖拽/试驾台/tick/hook/像素覆盖全 PASS）
 
 ### 实机回归抓到并修复的问题
 
@@ -378,12 +378,13 @@ interface PetStateSource {
 ### 待办
 
 - [x] DSH 实机回归（sprite 全绿）
-- [ ] 有 Live2D 模型后补跑 `e2e-live2d.mjs`
-- [ ] 用户确认后把本条目同步进 PROJECT.md（已同步）并推送 Phase 0 提交
+- [x] Live2D 实机回归（e2e-live2d PASS，2026-08-14）
+- [ ] 用户确认后推送 Phase 0 提交（`sl pr submit --stack`）
+- [ ] 推送后把本条目同步进 PROJECT.md 并标记"已同步"
 
 ---
 
-## [2026-08-14 19:57] 功能可行性：提醒 + 快捷批准 — 探索中
+## [2026-08-14 19:57] 功能可行性：提醒 + 快捷批准 — 已确认
 
 > 用户提出：宠物是否计划支持"任务进入需要用户输入的阶段时提醒"、以及"对 DSH 需要批准的操作做快捷批准"。对照本机 DSH 类型定义调研，**两个都可行，且 DSH 已有第一方通道**。
 
@@ -413,5 +414,6 @@ interface PetStateSource {
 
 ### 待用户拍板
 
-- [ ] 是否把"提醒 + 快捷批准"纳入正式路线图（Phase 2 首批功能）
-- [ ] 批准交互默认用"气泡按钮"还是"手势"（倾向气泡按钮）
+- [x] 是否把"提醒 + 快捷批准"纳入正式路线图（Phase 2 首批功能）→ **纳入（用户确认）**
+- [x] 批准交互默认用"气泡按钮"还是"手势"（倾向气泡按钮）→ **气泡按钮（用户确认）**
+- [x] Live2D 实机 e2e 的模型来源（用户问询中：模型=外部资产，仓库不含）→ **用户提供 `C:\MyCodeProject\petAsset\pet\352`，e2e PASS**
