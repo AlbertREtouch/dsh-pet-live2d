@@ -344,3 +344,144 @@ interface PetStateSource {
 - 上游同步策略正式记录为**不跟进**（本项目按自己的方向做）。
 - DEVLOG 本批条目（18:43 / 19:14 / 19:27）全部标记"已同步"。
 - 下一步：Phase 0 机械解耦（零行为变化）。
+
+---
+
+## [2026-08-14 19:58] Phase 0 实施完成（代码层） — 已同步
+
+### 已完成
+
+1. **目录分层**：新增 `src/core/`（PetOverlay / PetStateBus / personality）、`src/adapters/`（dsh-state / mock）、`src/entries/`（standalone）；`src/client/live2d/` 核心渲染器除注射化外未动。
+2. **注射化**：`PetLive2D` 的模型 URL 改由 `assetBase` props 注入、`probe` 改为注入回调（默认 no-op）；`PetOverlay` 只消费 `stateSource`/`fetchPets`/`probe`/`assetBase`/`personality`。
+3. **状态抽象**：`PetState {version, source, activity, detail}` + `PetStateSource {subscribe/getSnapshot/dispose}`；DSH 订阅逻辑与 `deriveState` 原样搬进 `src/adapters/dsh-state.js`；本地交互 one-shot 与状态源派生态分层。
+4. **性格/皮肤数据结构**：`DEFAULT_PERSONALITY`（交互手势、状态→图集行映射、气泡文案），未知状态回落 idle。
+5. **入口瘦身**：`src/client/index.js` 只剩 apply/inject/CSS 注入接线；删除了 `vx/vy` 死代码和过时交互注释；新增 `src/entries/standalone.js`（IIFE 目标，React 打进 bundle）。
+6. **服务工厂**：`lib/index.js` 导出 `createPetServer({petsRoot, echoPath, log})`，返回 `handleRequest` + `register`；DSH apply 与裸 Node server 共用同一路由。
+7. **安全修复**：坏 URI→400；echo body 限 64KB→413 且自动建日志父目录；资产路径 realpath + relative 校验（junction 逃逸→403）；HEAD 不返回 body；listPets 跳过根目录外的 junction。
+8. **双目标构建**：`build-client.mjs` 同时产出 `lib/client.js`（DSH，React external）与 `lib/standalone.js`（IIFE，React 打入）；package.json 补 react/react-dom devDeps 与 `./standalone` export。
+
+### 验证结果
+
+- ✅ `scripts/smoke-client.mjs`（DSH bundle 执行 + apply 接线）
+- ✅ `scripts/smoke-standalone.mjs`（standalone 不依赖 DSH seed table）
+- ✅ `scripts/test-pet-server.mjs`（目录/图集/穿越/坏 URI/echo 上限/HEAD/junction 全部 PASS）
+- ✅ `scripts/test-host-logic.mjs`
+- ✅ `scripts/e2e-sprite.mjs`（**DSH 实机**：boot 含 dsh-pet、精灵渲染、拖拽持久化、无 pageerror）
+- ✅ `scripts/e2e-live2d.mjs`（**DSH 实机**：用户提供模型 `C:\MyCodeProject\petAsset\pet\352`，装入 `~/.dsh/pets/anko`；motion-gen 现场生成 TapBody/Sad/Drowse/IdleVar 后，动作/视线/拖拽/试驾台/tick/hook/像素覆盖全 PASS）
+
+### 实机回归抓到并修复的问题
+
+1. `src/client/index.js` wrapper 与导入组件同名 `PetOverlay`，JSX 词法解析导致 wrapper 无限递归，DSH 页面挂死 → 改名 `DshPetOverlay`。
+2. `src/core/PetOverlay.jsx` 外层返回了组件函数 `Overlay` 而非 `<Overlay />`，React 报 "Functions are not valid as a React child" 且不渲染 → 修正返回 JSX。
+3. 定位手段：A/B 移除 live patch 条目确认问题在插件；`apply` 逐段二分（no-op / 仅 CSS / 仅 slot）+ echo 探针；standalone 真机预览隔离核心。诊断脚本已清理，`dev-standalone.mjs` 与 `e2e-sprite.mjs` 留作正式工具。
+
+### 待办
+
+- [x] DSH 实机回归（sprite 全绿）
+- [x] Live2D 实机回归（e2e-live2d PASS，2026-08-14）
+- [ ] 用户确认后推送 Phase 0 提交（`sl pr submit --stack`）
+- [ ] 推送后把本条目同步进 PROJECT.md 并标记"已同步"
+
+---
+
+## [2026-08-14 19:57] 功能可行性：提醒 + 快捷批准 — 已同步
+
+> 用户提出：宠物是否计划支持"任务进入需要用户输入的阶段时提醒"、以及"对 DSH 需要批准的操作做快捷批准"。对照本机 DSH 类型定义调研，**两个都可行，且 DSH 已有第一方通道**。
+
+### 调研结论（DSH API 层面）
+
+1. 会话快照 `ConversationSnapshot.pending: readonly PendingInteraction[]` 已经是权威的"等待用户"清单，包含两类：
+   - `kind: "approval"`：payload = `{approvalId, toolName, callId?, reason?}`；
+   - `kind: "question"`：payload = `{questions: AskUserQuestionItem[]}`（问题/选项/多选/plan-review intent）。
+2. 每个 `PendingWait` 自带 `respond(result)`：内部回填 rpcId，走 `POST /api/respond`。
+   - 批准：`respond({ ok: true, value: { sessionId, approvalId, outcome: "allowed-once" } })`；
+   - 拒绝：`outcome: "rejected"`；
+   - 回答问题：`respond({ ok: true, value: { sessionId, answer: { answers: [...] } } })`。
+   - 挂起项 settlement 由 `approval/resolved` / `question/resolved` 帧驱动，无需宠物维护状态。
+3. 现有 `deriveState` 只把 `pending.length>0` 折叠成 `waiting`——**信息已经到手，只是没拆开用**。
+
+### 计划形态（待用户拍板后进 PROJECT）
+
+- **提醒**：
+  - 适配器把 pending 展开进 `PetState.detail.pending`（kind / 摘要 / 请求时间），渲染层显示气泡（"需要你批准：执行命令"）+ 提醒动画；
+  - 性格预设新增 `attention` 节奏：首次提示 → 间隔重复（如 30s）→ 升级（更频繁动作 / Electron 系统通知）；
+  - 无 pending 自动恢复。
+- **快捷批准**：
+  - 状态源接口增加可选 `perform(action)`（跨进程安全：postMessage 嵌入模式下父窗口只传动作 key，iframe 里的 DSH 适配器执行），内核不直接碰 DSH API；
+  - 批准/拒绝：宠物气泡旁出现明确的 ✓/✕ 小按钮（不做"单击宠物=批准"，避免误触）；支持快捷键/右键菜单后续扩展；
+  - 问答题：单选择题直接渲染选项按钮；多选/自由文本/plan-review 先显示摘要并引导到 DSH 界面回答（快捷批准先只做二选一）。
+- **落点**：Phase 2（宠物连上 DSH 后）第一批功能；Phase 0 只需确保 `detail` 形状预留 `pending` 字段即可，不提前实现。
+
+### 待用户拍板
+
+- [x] 是否把"提醒 + 快捷批准"纳入正式路线图（Phase 2 首批功能）→ **纳入（用户确认）**
+- [x] 批准交互默认用"气泡按钮"还是"手势"（倾向气泡按钮）→ **气泡按钮（用户确认）**
+- [x] Live2D 实机 e2e 的模型来源（用户问询中：模型=外部资产，仓库不含）→ **用户提供 `C:\MyCodeProject\petAsset\pet\352`，e2e PASS**
+
+---
+
+## [2026-08-14 21:33] Phase 1 交接说明（给新会话） — 已确认
+
+> 用户计划开新会话来实施 Phase 1。本条目把当前状态、环境、测试方式和 Phase 1 起手点写清楚，新会话先读 `PROJECT.md`，再读本条目。
+
+### 0. 一句话状态
+
+Phase 0 已完成并全量验证（sprite + Live2D 两个 DSH 实机 e2e PASS）。本地 Sapling 栈 4 个提交（docs #1 / refactor(phase0) / fix(phase0) / docs 验收），用户已批准 submit；如本条目提交后已完成 `sl pr submit --stack`，栈上应有 PR 链接，继续工作时先 `sl pull --rebase`。
+
+### 1. 当前环境（不要无脑重置）
+
+- **DSH live 安装仍在生效**：junction `~/.dsh/profiles/node_modules/dsh-pet` → `C:\MyCodeProject\live2D_pet`；`~/.dsh/profiles/web/cordis.patch.yml` 有 `dsh-pet` insert 条目（live watcher，改代码后重建 `lib/client.js` 即可热生效，不用重装）。
+- **已安装宠物**：`~/.dsh/pets/dsh-kitten`（像素示例）、`~/.dsh/pets/anko`（用户提供的 Live2D 模型，含 motion-gen 现场生成的 TapBody/Sad/Drowse/IdleVar 动作组）。
+- **模型来源**：`C:\MyCodeProject\petAsset\pet\352`（用户资产，勿提交进仓库；e2e 用它）。
+- **DSH web**：`http://127.0.0.1:3080`（端口配置在 DSH patch 里，默认 3080）。
+
+### 2. Phase 0 之后的关键文件
+
+| 文件 | 角色 |
+|---|---|
+| `src/core/PetOverlay.jsx` | 共享内核渲染面（sprite/Live2D、拖拽/点击、气泡），只认 props |
+| `src/core/PetStateBus.js` | useSyncExternalStore 兼容状态总线（当前单源，Phase 3 多源） |
+| `src/core/personality.js` | 性格预设：交互手势 / 状态→图集行 / 气泡文案 |
+| `src/adapters/dsh-state.js` | ctx.sessions → PetState（deriveState 精确顺序见文件注释） |
+| `src/adapters/mock.js` | 定时器演示状态源 |
+| `src/client/index.js` | DSH 插件胶水（注意 wrapper 不要与导入组件同名——踩过坑） |
+| `src/entries/standalone.js` | standalone IIFE 入口，`PetStandalone.mount(options)` |
+| `lib/index.js` | `createPetServer({petsRoot, echoPath, log})` → `handleRequest` + `register` |
+| `scripts/dev-standalone.mjs` | **Phase 1 雏形**：serves pet.html + standalone.js + /api/pets，端口 3410 |
+| `scripts/e2e-sprite.mjs` / `e2e-live2d.mjs` | 两个 DSH 实机 e2e |
+
+### 3. 构建与测试命令（全部验证过）
+
+```bash
+npm run build:client          # 双目标：lib/client.js（DSH，React external）+ lib/standalone.js（IIFE，含 React）
+node scripts/smoke-client.mjs
+node scripts/smoke-standalone.mjs
+node scripts/test-pet-server.mjs
+node scripts/test-host-logic.mjs
+node scripts/e2e-sprite.mjs   # 需 DSH 运行 + headless Edge（沙箱里跑需 danger-full-access）
+node scripts/e2e-live2d.mjs   # 同上，需要 ~/.dsh/pets/anko
+node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可指定宠物根目录）
+```
+
+### 4. Phase 1 起手清单（按 PROJECT.md 路线图展开）
+
+1. **Electron 壳**：
+   - 新增 `electron` / `electron-builder` devDependencies（安装体积代价用户已接受）；
+   - main 进程：`app.whenReady` 后开 **frameless / transparent / always-on-top** BrowserWindow，窗口内加载 standalone 页面；
+   - main 进程内直接 `createPetServer({ petsRoot })` 绑 `127.0.0.1:<随机或固定端口>`，渲染进程 `PetStandalone.mount({ assetBase: "http://127.0.0.1:<port>/api" })`；
+   - 托盘/菜单：皮肤切换（读 `/api/pets` 目录即可）、退出；**退出绝不关闭任何 DSH**。
+2. **standalone 页面**：把 `scripts/dev-standalone.mjs` 里的 HTML 抽成正式 `standalone.html`（先继续用同一个 bundle 即可）。
+3. **打包**：electron-builder 出便携版/安装包；验收里程碑 = 双击图标即开一只活宠物，不依赖 DSH、不依赖浏览器。
+4. **性格/皮肤切换最小闭环**：先用内置 `DEFAULT_PERSONALITY` + 菜单切换宠物目录，配置文件的持久化放本阶段后期。
+5. **测试**：`smoke-standalone` 保持绿；新增 `e2e-electron`（能测多少测多少，壳保持薄）；`dev-standalone` 继续作为无壳调试入口。
+6. 完成标准与 Phase 0 相同：本地测试全绿 → DSH 实机不回归（本阶段不碰 DSH 路径）→ 用户确认 → 再 submit。
+
+### 5. 已确认的方向（改之前先看 PROJECT.md §3）
+
+配置驱动心情 / Electron / 宠物是纯交互器（绝不关 DSH）/ 皮肤性格分离 / 不拆 monorepo / 保留 React / 提醒+快捷批准在 Phase 2 首批、气泡按钮交互。
+
+### 6. 遗留小事项（顺手可做，不阻塞）
+
+- `npm audit` 报 3 个漏洞（1 high 2 critical，来自依赖树），Phase 1 加依赖时一并评估。
+- `test-resolvemeta.mjs` 还是探索脚本（硬编码 `C:\Users\Yilun`），要么改成参数化要么标废弃。
+- 实机调试经验：DSH 页面在 headless Edge 冷 profile 下 `Page.enable`/`evaluate` 可能长时间超时，先做 A/B（移除插件条目）再归因，不要直接怀疑环境。

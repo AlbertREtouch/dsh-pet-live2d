@@ -11,7 +11,6 @@ import { Component, useCallback, useEffect, useRef, useState } from "react";
 import * as PIXI from "pixi.js";
 import "./setup.js";
 import { Live2DModel } from "pixi-live2d-display/cubism4";
-import { probe } from "../probe.js";
 import DebugPanel, { debugEnabled } from "./DebugPanel.js";
 
 export const LIVE2D_W = 240;
@@ -47,11 +46,12 @@ function readParam(coreModel, id, fallback) {
 	}
 }
 
-export default function PetLive2D({ pet, mood, state }) {
+export default function PetLive2D({ pet, mood, state, assetBase = "/api", probe = () => {} }) {
 	const mountRef = useRef(null);
 	const appRef = useRef(null);
 	const modelRef = useRef(null);
 	const moodRef = useRef(mood);
+	const probeRef = useRef(probe);
 	const targetRef = useRef({ x: 0, y: 0 });
 	const blinkRef = useRef({ next: BLINK_INTERVAL, phase: null, start: 0, eyeOpen: 1 });
 	const overridesRef = useRef({}); // 试驾台 debug overrides: id -> value
@@ -60,6 +60,7 @@ export default function PetLive2D({ pet, mood, state }) {
 	const [status, setStatus] = useState("loading");
 
 	moodRef.current = mood;
+	probeRef.current = probe;
 	const stateRef = useRef(state);
 	stateRef.current = state;
 
@@ -78,9 +79,9 @@ export default function PetLive2D({ pet, mood, state }) {
 			const def = model.internalModel.settings.motions?.[group]?.[index];
 			const durationMs = (typeof def?.Duration === "number" ? def.Duration : 2) * 1000;
 			motionActiveRef.current = { until: loop ? Infinity : Date.now() + durationMs, loop, group };
-			probe("live2d-motion", { state: stateRef.current, group, index, loop, durationMs });
+			probeRef.current("live2d-motion", { state: stateRef.current, group, index, loop, durationMs });
 		} catch (error) {
-			probe("live2d-motion-error", { state: stateRef.current, message: String(error?.message ?? error) });
+			probeRef.current("live2d-motion-error", { state: stateRef.current, message: String(error?.message ?? error) });
 		}
 	}, []);
 	const playMotionRef = useRef(playMotion);
@@ -130,7 +131,7 @@ export default function PetLive2D({ pet, mood, state }) {
 		// The library wants the Ticker CLASS (it uses Ticker.shared).
 		Live2DModel.registerTicker(PIXI.Ticker);
 
-		const url = `/api/pets/${encodeURIComponent(petId)}/assets/${encodeURIComponent(petModel)}`;
+		const url = `${assetBase}/pets/${encodeURIComponent(petId)}/assets/${encodeURIComponent(petModel)}`;
 		// The tick is registered INSIDE the load resolution so the library's
 		// model-update listener (added at model creation) always runs FIRST on
 		// the shared ticker — otherwise the model update would overwrite our
@@ -162,11 +163,11 @@ export default function PetLive2D({ pet, mood, state }) {
 				model.internalModel.on("beforeModelUpdate", applyParams);
 				app.ticker.add(tick);
 				disposeTick = () => app.ticker.remove(tick);
-				probe("live2d-loaded", { id: pet.id, scale, modelWidth: model.internalModel.width, modelHeight: model.internalModel.height });
+				probeRef.current("live2d-loaded", { id: pet.id, scale, modelWidth: model.internalModel.width, modelHeight: model.internalModel.height });
 			})
 			.catch((error) => {
 				if (disposed) return;
-				probe("live2d-error", { id: pet.id, message: String(error?.message ?? error), stack: String(error?.stack ?? "").slice(0, 500) });
+				probeRef.current("live2d-error", { id: pet.id, message: String(error?.message ?? error), stack: String(error?.stack ?? "").slice(0, 500) });
 				setStatus("error");
 			});
 
