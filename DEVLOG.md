@@ -347,7 +347,7 @@ interface PetStateSource {
 
 ---
 
-## [2026-08-14 19:58] Phase 0 实施完成（代码层） — 待同步
+## [2026-08-14 19:58] Phase 0 实施完成（代码层） — 已同步
 
 ### 已完成
 
@@ -384,7 +384,7 @@ interface PetStateSource {
 
 ---
 
-## [2026-08-14 19:57] 功能可行性：提醒 + 快捷批准 — 已确认
+## [2026-08-14 19:57] 功能可行性：提醒 + 快捷批准 — 已同步
 
 > 用户提出：宠物是否计划支持"任务进入需要用户输入的阶段时提醒"、以及"对 DSH 需要批准的操作做快捷批准"。对照本机 DSH 类型定义调研，**两个都可行，且 DSH 已有第一方通道**。
 
@@ -417,3 +417,71 @@ interface PetStateSource {
 - [x] 是否把"提醒 + 快捷批准"纳入正式路线图（Phase 2 首批功能）→ **纳入（用户确认）**
 - [x] 批准交互默认用"气泡按钮"还是"手势"（倾向气泡按钮）→ **气泡按钮（用户确认）**
 - [x] Live2D 实机 e2e 的模型来源（用户问询中：模型=外部资产，仓库不含）→ **用户提供 `C:\MyCodeProject\petAsset\pet\352`，e2e PASS**
+
+---
+
+## [2026-08-14 21:33] Phase 1 交接说明（给新会话） — 已确认
+
+> 用户计划开新会话来实施 Phase 1。本条目把当前状态、环境、测试方式和 Phase 1 起手点写清楚，新会话先读 `PROJECT.md`，再读本条目。
+
+### 0. 一句话状态
+
+Phase 0 已完成并全量验证（sprite + Live2D 两个 DSH 实机 e2e PASS）。本地 Sapling 栈 4 个提交（docs #1 / refactor(phase0) / fix(phase0) / docs 验收），用户已批准 submit；如本条目提交后已完成 `sl pr submit --stack`，栈上应有 PR 链接，继续工作时先 `sl pull --rebase`。
+
+### 1. 当前环境（不要无脑重置）
+
+- **DSH live 安装仍在生效**：junction `~/.dsh/profiles/node_modules/dsh-pet` → `C:\MyCodeProject\live2D_pet`；`~/.dsh/profiles/web/cordis.patch.yml` 有 `dsh-pet` insert 条目（live watcher，改代码后重建 `lib/client.js` 即可热生效，不用重装）。
+- **已安装宠物**：`~/.dsh/pets/dsh-kitten`（像素示例）、`~/.dsh/pets/anko`（用户提供的 Live2D 模型，含 motion-gen 现场生成的 TapBody/Sad/Drowse/IdleVar 动作组）。
+- **模型来源**：`C:\MyCodeProject\petAsset\pet\352`（用户资产，勿提交进仓库；e2e 用它）。
+- **DSH web**：`http://127.0.0.1:3080`（端口配置在 DSH patch 里，默认 3080）。
+
+### 2. Phase 0 之后的关键文件
+
+| 文件 | 角色 |
+|---|---|
+| `src/core/PetOverlay.jsx` | 共享内核渲染面（sprite/Live2D、拖拽/点击、气泡），只认 props |
+| `src/core/PetStateBus.js` | useSyncExternalStore 兼容状态总线（当前单源，Phase 3 多源） |
+| `src/core/personality.js` | 性格预设：交互手势 / 状态→图集行 / 气泡文案 |
+| `src/adapters/dsh-state.js` | ctx.sessions → PetState（deriveState 精确顺序见文件注释） |
+| `src/adapters/mock.js` | 定时器演示状态源 |
+| `src/client/index.js` | DSH 插件胶水（注意 wrapper 不要与导入组件同名——踩过坑） |
+| `src/entries/standalone.js` | standalone IIFE 入口，`PetStandalone.mount(options)` |
+| `lib/index.js` | `createPetServer({petsRoot, echoPath, log})` → `handleRequest` + `register` |
+| `scripts/dev-standalone.mjs` | **Phase 1 雏形**：serves pet.html + standalone.js + /api/pets，端口 3410 |
+| `scripts/e2e-sprite.mjs` / `e2e-live2d.mjs` | 两个 DSH 实机 e2e |
+
+### 3. 构建与测试命令（全部验证过）
+
+```bash
+npm run build:client          # 双目标：lib/client.js（DSH，React external）+ lib/standalone.js（IIFE，含 React）
+node scripts/smoke-client.mjs
+node scripts/smoke-standalone.mjs
+node scripts/test-pet-server.mjs
+node scripts/test-host-logic.mjs
+node scripts/e2e-sprite.mjs   # 需 DSH 运行 + headless Edge（沙箱里跑需 danger-full-access）
+node scripts/e2e-live2d.mjs   # 同上，需要 ~/.dsh/pets/anko
+node scripts/dev-standalone.mjs  # 浏览器预览 standalone（DSH_PET_ROOT 可指定宠物根目录）
+```
+
+### 4. Phase 1 起手清单（按 PROJECT.md 路线图展开）
+
+1. **Electron 壳**：
+   - 新增 `electron` / `electron-builder` devDependencies（安装体积代价用户已接受）；
+   - main 进程：`app.whenReady` 后开 **frameless / transparent / always-on-top** BrowserWindow，窗口内加载 standalone 页面；
+   - main 进程内直接 `createPetServer({ petsRoot })` 绑 `127.0.0.1:<随机或固定端口>`，渲染进程 `PetStandalone.mount({ assetBase: "http://127.0.0.1:<port>/api" })`；
+   - 托盘/菜单：皮肤切换（读 `/api/pets` 目录即可）、退出；**退出绝不关闭任何 DSH**。
+2. **standalone 页面**：把 `scripts/dev-standalone.mjs` 里的 HTML 抽成正式 `standalone.html`（先继续用同一个 bundle 即可）。
+3. **打包**：electron-builder 出便携版/安装包；验收里程碑 = 双击图标即开一只活宠物，不依赖 DSH、不依赖浏览器。
+4. **性格/皮肤切换最小闭环**：先用内置 `DEFAULT_PERSONALITY` + 菜单切换宠物目录，配置文件的持久化放本阶段后期。
+5. **测试**：`smoke-standalone` 保持绿；新增 `e2e-electron`（能测多少测多少，壳保持薄）；`dev-standalone` 继续作为无壳调试入口。
+6. 完成标准与 Phase 0 相同：本地测试全绿 → DSH 实机不回归（本阶段不碰 DSH 路径）→ 用户确认 → 再 submit。
+
+### 5. 已确认的方向（改之前先看 PROJECT.md §3）
+
+配置驱动心情 / Electron / 宠物是纯交互器（绝不关 DSH）/ 皮肤性格分离 / 不拆 monorepo / 保留 React / 提醒+快捷批准在 Phase 2 首批、气泡按钮交互。
+
+### 6. 遗留小事项（顺手可做，不阻塞）
+
+- `npm audit` 报 3 个漏洞（1 high 2 critical，来自依赖树），Phase 1 加依赖时一并评估。
+- `test-resolvemeta.mjs` 还是探索脚本（硬编码 `C:\Users\Yilun`），要么改成参数化要么标废弃。
+- 实机调试经验：DSH 页面在 headless Edge 冷 profile 下 `Page.enable`/`evaluate` 可能长时间超时，先做 A/B（移除插件条目）再归因，不要直接怀疑环境。
