@@ -17,12 +17,19 @@ const SCALE = 0.55;
 const PET_W = Math.round(CELL_W * SCALE);
 const PET_H = Math.round(CELL_H * SCALE);
 
+// Compact Electron shell layout: the window is exactly these paddings plus
+// the pet element. Kept in sync with electron/main.cjs (SHELL_PAD).
+const SHELL_PAD_LEFT = 24;
+const SHELL_PAD_TOP = 64;
+const SHELL_PAD_RIGHT = 24;
+const SHELL_PAD_BOTTOM = 8;
+
 const ROWS = { idle: 0, runningRight: 1, runningLeft: 2, waving: 3, jumping: 4, failed: 5, waiting: 6, running: 7, review: 8 };
 const FRAMES = [6, 8, 8, 4, 5, 8, 6, 6, 6];
 const FPS = { idle: 4, runningRight: 10, runningLeft: 10, waving: 8, jumping: 8, failed: 6, waiting: 4, running: 8, review: 8 };
 
 const CSS = `
-.dsh-pet-anchor{position:fixed;left:0;top:0;z-index:2147483000;pointer-events:none;user-select:none;-webkit-user-select:none}
+.dsh-pet-anchor{position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:2147483000;pointer-events:none;user-select:none;-webkit-user-select:none}
 .dsh-pet-anchor *{box-sizing:border-box}
 .dsh-pet{position:absolute;pointer-events:auto;cursor:grab;touch-action:none;filter:drop-shadow(0 3px 6px rgba(0,0,0,.35))}
 .dsh-pet:active{cursor:grabbing}
@@ -49,6 +56,7 @@ const CSS = `
   background:var(--dsw-alias-bg-float,rgba(24,26,32,.96));color:var(--dsw-alias-text-primary,#eee);
   border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.16));border-radius:12px;font:12px/1.5 system-ui,sans-serif;
   box-shadow:0 8px 30px rgba(0,0,0,.4)}
+.dsh-pet-debug-panel-right{left:auto;right:16px}
 .dsh-pet-debug-head{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.14));cursor:grab;touch-action:none}
 .dsh-pet-debug-head span{flex:1;font-weight:600}
 .dsh-pet-debug-head button{cursor:pointer;background:var(--dsw-alias-button-fill,rgba(255,255,255,.1));color:inherit;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.2));border-radius:6px;padding:2px 8px;font:11px/1.4 system-ui,sans-serif}
@@ -131,6 +139,7 @@ export function PetOverlay({
 	selectedPetId = null,
 	onPetChange = null,
 	debugPanel = false,
+	desktopWindow = null,
 }) {
 	class RenderBoundary extends Component {
 		constructor(props) {
@@ -141,7 +150,8 @@ export function PetOverlay({
 			return { error };
 		}
 		componentDidCatch(error) {
-			probe("render-error", { message: String(error?.message ?? error), stack: String(error?.stack ?? "") });
+			const probeFn = typeof this.props.probe === "function" ? this.props.probe : () => {};
+			probeFn("render-error", { message: String(error?.message ?? error), stack: String(error?.stack ?? "") });
 		}
 		render() {
 			if (this.state.error !== null) return null;
@@ -149,7 +159,23 @@ export function PetOverlay({
 		}
 	}
 
-	function Overlay() {
+	// Stable component identity across prop updates (Electron tray toggles
+	// skin/debug by re-rendering the same root): a component type recreated on
+	// every render would remount the pet, wipe its state and flash the hint.
+	const Overlay = useCallback(function Overlay({
+		stateSource,
+		fetchPets,
+		probe = () => {},
+		assetBase = "/api",
+		personality = DEFAULT_PERSONALITY,
+		selectedPetId = null,
+		onPetChange = null,
+		debugPanel = false,
+		desktopWindow = null,
+	}) {
+		const isDesktop = desktopWindow !== null && typeof desktopWindow?.moveTo === "function";
+		const desktopRef = useRef(desktopWindow);
+		desktopRef.current = desktopWindow;
 		const pets = usePets(fetchPets, probe);
 		const subscribeState = useCallback((cb) => stateSource.subscribe(cb), [stateSource]);
 		const petState = useSyncExternalStore(
@@ -175,7 +201,9 @@ export function PetOverlay({
 				return null;
 			}
 		});
-		const [position, setPosition] = useState(() => loadPosition());
+		const [position, setPosition] = useState(() =>
+			isDesktop ? { x: SHELL_PAD_LEFT, y: SHELL_PAD_TOP } : loadPosition(),
+		);
 		const [mood, setMood] = useState(null); // { state, start } one-shot override
 		const [hintDismissed, setHintDismissed] = useState(() => {
 			try {
@@ -227,17 +255,26 @@ export function PetOverlay({
 			if (typeof onPetChange === "function" && pet !== null) onPetChange(pet.id);
 		}, [pet === null ? null : pet.id, onPetChange]);
 
+		// Compact Electron shell: the main process sizes the window around the
+		// pet element. DSH/dev previews never pass desktopWindow.
+		useEffect(() => {
+			if (isDesktop && pet !== null && typeof desktopWindow?.setPetBounds === "function") {
+				desktopWindow.setPetBounds({ width: petDims.w, height: petDims.h });
+			}
+			// eslint-disable-next-line react-hooks/exhaustive-deps
+		}, [isDesktop, petDims.w, petDims.h, desktopWindow, pet === null ? null : pet.id]);
+
 		// Keep the initial position in view (bottom-right, 16px margin).
 		useEffect(() => {
-			if (position !== null) return;
+			if (isDesktop || position !== null) return;
 			const vw = window.innerWidth;
 			const vh = window.innerHeight;
 			setPosition({ x: Math.max(16, vw - dimsRef.current.w - 16), y: Math.max(16, vh - dimsRef.current.h - 16) });
-		}, [position]);
+		}, [isDesktop, position]);
 
 		// Re-clamp into the viewport when the pet's kind/dimensions change.
 		useEffect(() => {
-			if (position === null) return;
+			if (isDesktop || position === null) return;
 			const vw = window.innerWidth;
 			const vh = window.innerHeight;
 			const dims = dimsRef.current;
@@ -277,13 +314,14 @@ export function PetOverlay({
 			return () => clearTimeout(timer);
 		}, [mood]);
 
-		// Drag to move. Capture is taken on the pet element itself; the base
-		// position is read from the dragged element, and the final position
-		// travels in the drag record so the release handler sees fresh values.
+		// Drag to move. In the compact Electron shell the pet stays fixed inside
+		// its window and the WINDOW is moved under the pointer (screenX/screenY
+		// minus the grab offset); in DSH/dev the pet moves inside the viewport.
 		const onPointerDown = useCallback((e) => {
 			if (e.button !== 0) return;
 			const target = e.currentTarget;
 			const base = positionRef.current ?? { x: 0, y: 0 };
+			const rect = target.getBoundingClientRect();
 			dragRef.current = {
 				startX: e.clientX,
 				startY: e.clientY,
@@ -291,6 +329,8 @@ export function PetOverlay({
 				baseY: base.y,
 				x: base.x,
 				y: base.y,
+				grabX: e.clientX - rect.left,
+				grabY: e.clientY - rect.top,
 				moved: false,
 				pointerId: e.pointerId,
 			};
@@ -306,7 +346,14 @@ export function PetOverlay({
 			const dx = e.clientX - drag.startX;
 			const dy = e.clientY - drag.startY;
 			if (!drag.moved && Math.hypot(dx, dy) < 4) return;
-			drag.moved = true;
+			if (!drag.moved) drag.moved = true;
+			const desktop = desktopRef.current;
+			if (desktop !== null && typeof desktop.moveTo === "function" && Number.isFinite(e.screenX) && Number.isFinite(e.screenY)) {
+				drag.x = e.screenX - drag.grabX;
+				drag.y = e.screenY - drag.grabY;
+				desktop.moveTo(drag.x, drag.y);
+				return;
+			}
 			const vw = window.innerWidth;
 			const vh = window.innerHeight;
 			const dims = dimsRef.current;
@@ -321,6 +368,11 @@ export function PetOverlay({
 			if (drag === null || e.pointerId !== drag.pointerId) return;
 			dragRef.current = null;
 			if (!drag.moved) return;
+			const desktop = desktopRef.current;
+			if (desktop !== null && typeof desktop.dragEnd === "function") {
+				desktop.dragEnd();
+				return;
+			}
 			try {
 				localStorage.setItem(STORAGE_POS, JSON.stringify({ x: drag.x, y: drag.y }));
 			} catch {
@@ -401,7 +453,15 @@ export function PetOverlay({
 						onPointerCancel={endDrag}
 					>
 						{isLive2D ? (
-							<PetLive2D pet={pet} mood={mood} state={state} assetBase={assetBase} probe={probe} debugPanel={debugPanel} />
+							<PetLive2D
+								pet={pet}
+								mood={mood}
+								state={state}
+								assetBase={assetBase}
+								probe={probe}
+								debugPanel={debugPanel}
+								debugPanelAlign={isDesktop ? "right" : "left"}
+							/>
 						) : (
 							<div className="dsh-pet-sprite" style={spriteStyle} />
 						)}
@@ -410,8 +470,20 @@ export function PetOverlay({
 				</div>
 			);
 		}
-		return <RenderBoundary>{content}</RenderBoundary>;
-	}
+		return <RenderBoundary probe={probe}>{content}</RenderBoundary>;
+	}, []);
 
-	return <Overlay />;
+	return (
+		<Overlay
+			stateSource={stateSource}
+			fetchPets={fetchPets}
+			probe={probe}
+			assetBase={assetBase}
+			personality={personality}
+			selectedPetId={selectedPetId}
+			onPetChange={onPetChange}
+			debugPanel={debugPanel}
+			desktopWindow={desktopWindow}
+		/>
+	);
 }

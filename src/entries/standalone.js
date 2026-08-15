@@ -52,10 +52,12 @@ export function mount(options = {}) {
 		selectedPetId = null,
 		onPetChange = null,
 		debugPanel = false,
+		desktopWindow = null,
 	} = options;
 	const source = stateSource ?? createMockStateSource();
 	const disposeCss = injectCss();
 	const root = createRoot(target);
+	const fetchPetsFn = createFetchPets(assetBase, fetchPets);
 	let currentPetId = typeof selectedPetId === "string" && selectedPetId.length > 0 ? selectedPetId : null;
 	let currentDebugPanel = Boolean(debugPanel);
 	let disposed = false;
@@ -68,13 +70,14 @@ export function mount(options = {}) {
 	const render = () => {
 		root.render(createElement(PetOverlay, {
 			stateSource: source,
-			fetchPets: createFetchPets(assetBase, fetchPets),
+			fetchPets: fetchPetsFn,
 			probe,
 			assetBase,
 			personality,
 			selectedPetId: currentPetId,
 			onPetChange: handlePetChange,
 			debugPanel: currentDebugPanel,
+			desktopWindow,
 		}));
 	};
 

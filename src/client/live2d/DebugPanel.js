@@ -36,7 +36,7 @@ function cdi3Url(pet, assetBase) {
 	return `${assetBase}/pets/${encodeURIComponent(pet.id)}/assets/${encodeURIComponent(cdiName)}`;
 }
 
-export default function DebugPanel({ pet, overrides, assetBase = "/api" }) {
+export default function DebugPanel({ pet, overrides, assetBase = "/api", align = "left" }) {
 	const [params, setParams] = useState([]);
 	const [open, setOpen] = useState(false);
 	const [values, setValues] = useState({});
@@ -119,8 +119,8 @@ export default function DebugPanel({ pet, overrides, assetBase = "/api" }) {
 	}
 	return (
 		<div
-			className="dsh-pet-debug-panel"
-			style={panelPos !== null ? { left: panelPos.x, top: panelPos.y } : undefined}
+			className={`dsh-pet-debug-panel${align === "right" ? " dsh-pet-debug-panel-right" : ""}`}
+			style={panelPos !== null ? (align === "right" ? { right: panelPos.x, top: panelPos.y } : { left: panelPos.x, top: panelPos.y }) : undefined}
 			onPointerDown={stop}
 			onPointerUp={stop}
 			onPointerMove={stop}

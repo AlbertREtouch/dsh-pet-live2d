@@ -46,7 +46,7 @@ function readParam(coreModel, id, fallback) {
 	}
 }
 
-export default function PetLive2D({ pet, mood, state, assetBase = "/api", probe = () => {}, debugPanel = false }) {
+export default function PetLive2D({ pet, mood, state, assetBase = "/api", probe = () => {}, debugPanel = false, debugPanelAlign = "left" }) {
 	const mountRef = useRef(null);
 	const appRef = useRef(null);
 	const modelRef = useRef(null);
@@ -321,7 +321,7 @@ export default function PetLive2D({ pet, mood, state, assetBase = "/api", probe 
 		<div className="dsh-pet-live2d" ref={mountRef} style={{ width: LIVE2D_W, height: LIVE2D_H }}>
 			{status === "loading" && <div className="dsh-pet-live2d-status">加载中…</div>}
 			{status === "error" && <div className="dsh-pet-live2d-status">模型加载失败</div>}
-			{status === "ready" && (debugPanel || debugEnabled()) && <DebugPanel pet={pet} overrides={overridesRef} assetBase={assetBase} />}
+			{status === "ready" && (debugPanel || debugEnabled()) && <DebugPanel pet={pet} overrides={overridesRef} assetBase={assetBase} align={debugPanelAlign} />}
 		</div>
 	);
 }

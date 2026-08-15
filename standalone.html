@@ -28,11 +28,20 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
 		bridge?.config?.assetBase ??
 		"http://127.0.0.1:3410/api";
 	const initialPetId = params.get("dsh-pet");
+	const desktopWindow =
+		bridge !== null
+			? {
+					moveTo: (x, y) => bridge.moveWindow(x, y),
+					setPetBounds: (bounds) => bridge.setPetBounds(bounds),
+					dragEnd: () => bridge.dragEnd(),
+				}
+			: null;
 
 	const api = PetStandalone.mount({
 		target: document.getElementById("pet-root"),
 		assetBase,
 		selectedPetId: initialPetId !== null && initialPetId.length > 0 ? initialPetId : null,
+		desktopWindow,
 		onPetChange: (id) => {
 			window.__dshPetCurrentId = id;
 			bridge?.reportPet(id);
@@ -42,9 +51,10 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
 	bridge?.onSelectPet((id) => api.selectPet(id));
 	bridge?.onSetDebug((enabled) => api.setDebugPanel(enabled));
 
-	// Click-through hit-testing: the Electron window ignores the mouse unless
-	// the pointer is over an interactive pet surface. `forward` keeps these
-	// mousemove events flowing even while ignored.
+	// Click-through hit-testing: the compact shell window has transparent
+	// margins; it ignores the mouse unless the pointer is over an interactive
+	// pet surface. `forward` keeps these mousemove events flowing while
+	// ignored.
 	if (bridge !== null) {
 		let interactive = null;
 		document.addEventListener("mousemove", (event) => {
