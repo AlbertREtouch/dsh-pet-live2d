@@ -130,6 +130,7 @@ export function PetOverlay({
 	personality = DEFAULT_PERSONALITY,
 	selectedPetId = null,
 	onPetChange = null,
+	debugPanel = false,
 }) {
 	class RenderBoundary extends Component {
 		constructor(props) {
@@ -400,7 +401,7 @@ export function PetOverlay({
 						onPointerCancel={endDrag}
 					>
 						{isLive2D ? (
-							<PetLive2D pet={pet} mood={mood} state={state} assetBase={assetBase} probe={probe} />
+							<PetLive2D pet={pet} mood={mood} state={state} assetBase={assetBase} probe={probe} debugPanel={debugPanel} />
 						) : (
 							<div className="dsh-pet-sprite" style={spriteStyle} />
 						)}

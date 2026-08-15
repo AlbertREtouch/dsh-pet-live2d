@@ -30,6 +30,7 @@ const state = {
 	port: 0,
 	pets: [],
 	currentPetId: null,
+	debugPanel: false,
 	quitting: false,
 	refreshTimer: null,
 };
@@ -117,6 +118,12 @@ function rebuildMenu() {
 		{ type: "separator" },
 		{ label: "皮肤", submenu: skinItems.concat([{ type: "separator" }, { label: "刷新皮肤列表", click: refreshPets }]) },
 		{
+			label: "Live2D 参数试驾台",
+			type: "checkbox",
+			checked: state.debugPanel,
+			click: toggleDebugPanel,
+		},
+		{
 			label: "性格",
 			submenu: [{ label: "经典（内置）", type: "radio", checked: true }],
 		},
@@ -148,6 +155,14 @@ function selectPet(id) {
 	state.currentPetId = id;
 	if (state.win !== null && !state.win.isDestroyed()) {
 		state.win.webContents.send("dsh-pet:select-pet", id);
+	}
+	rebuildMenu();
+}
+
+function toggleDebugPanel() {
+	state.debugPanel = !state.debugPanel;
+	if (state.win !== null && !state.win.isDestroyed()) {
+		state.win.webContents.send("dsh-pet:set-debug", state.debugPanel);
 	}
 	rebuildMenu();
 }
@@ -243,23 +258,50 @@ async function runE2E() {
 		);
 		let switchedPet = null;
 		let switchedKind = null;
-		if (Array.isArray(catalog) && catalog.length > 1) {
-			switchedPet = catalog.find((pet) => pet.id !== state.currentPetId)?.id ?? null;
-			if (switchedPet !== null) {
+		if (Array.isArray(catalog) && catalog.length > 0) {
+			// Prefer a Live2D skin so the cockpit toggle can be exercised when
+			// the fixture provides one; otherwise switch to any other skin.
+			const targetPet =
+				catalog.find((pet) => pet.kind === "live2d") ??
+				catalog.find((pet) => pet.id !== state.currentPetId) ??
+				catalog[0];
+			switchedPet = targetPet?.id ?? null;
+			const expectedKind = targetPet?.kind === "live2d" || targetPet?.kind === "sprite" ? targetPet.kind : null;
+			if (switchedPet !== null && state.currentPetId !== null && expectedKind !== null) {
 				selectPet(switchedPet);
 				await waitFor(
 					async () => (await state.win.webContents.executeJavaScript("window.__dshPetCurrentId")) === switchedPet,
-					"renderer to switch skin",
+					"renderer to select skin",
 					deadline,
 				);
-				switchedKind = await state.win.webContents.executeJavaScript(
-					`document.querySelector(".dsh-pet-live2d") !== null
-						? "live2d"
-						: document.querySelector(".dsh-pet-sprite") !== null
-							? "sprite"
-							: null`,
+				const kindExpression = `document.querySelector(".dsh-pet-live2d") !== null
+					? "live2d"
+					: document.querySelector(".dsh-pet-sprite") !== null
+						? "sprite"
+						: null`;
+				await waitFor(
+					async () => (await state.win.webContents.executeJavaScript(kindExpression)) === expectedKind,
+					"renderer DOM to reflect the switched skin",
+					deadline,
 				);
+				switchedKind = expectedKind;
 			}
+		}
+		let cockpitToggled = null;
+		if (switchedKind === "live2d") {
+			toggleDebugPanel();
+			await waitFor(
+				async () => (await state.win.webContents.executeJavaScript(`document.querySelector(".dsh-pet-debug-tab") !== null`)) === true,
+				"cockpit tab to appear",
+				deadline,
+			);
+			toggleDebugPanel();
+			await waitFor(
+				async () => (await state.win.webContents.executeJavaScript(`document.querySelector(".dsh-pet-debug-tab") !== null`)) === false,
+				"cockpit tab to disappear",
+				deadline,
+			);
+			cockpitToggled = true;
 		}
 		const result = {
 			port: state.port,
@@ -268,6 +310,7 @@ async function runE2E() {
 			renderer: JSON.parse(renderer),
 			switchedPet,
 			switchedKind,
+			cockpitToggled,
 		};
 		console.log(`DSH_PET_E2E_OK ${JSON.stringify(result)}`);
 		state.quitting = true;

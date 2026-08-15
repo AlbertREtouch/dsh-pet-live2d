@@ -51,11 +51,13 @@ export function mount(options = {}) {
 		stateSource = null,
 		selectedPetId = null,
 		onPetChange = null,
+		debugPanel = false,
 	} = options;
 	const source = stateSource ?? createMockStateSource();
 	const disposeCss = injectCss();
 	const root = createRoot(target);
 	let currentPetId = typeof selectedPetId === "string" && selectedPetId.length > 0 ? selectedPetId : null;
+	let currentDebugPanel = Boolean(debugPanel);
 	let disposed = false;
 
 	const handlePetChange = (id) => {
@@ -72,6 +74,7 @@ export function mount(options = {}) {
 			personality,
 			selectedPetId: currentPetId,
 			onPetChange: handlePetChange,
+			debugPanel: currentDebugPanel,
 		}));
 	};
 
@@ -92,6 +95,12 @@ export function mount(options = {}) {
 		render();
 	};
 	unmount.getCurrentPet = () => currentPetId;
+	unmount.setDebugPanel = (enabled) => {
+		if (disposed) return;
+		currentDebugPanel = Boolean(enabled);
+		render();
+	};
+	unmount.getDebugPanel = () => currentDebugPanel;
 	return unmount;
 }
 
