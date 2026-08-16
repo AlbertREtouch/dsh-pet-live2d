@@ -19,10 +19,16 @@ const PET_H = Math.round(CELL_H * SCALE);
 
 // Compact Electron shell layout: the window is exactly these paddings plus
 // the pet element. Kept in sync with electron/main.cjs (SHELL_PAD).
-const SHELL_PAD_LEFT = 24;
-const SHELL_PAD_TOP = 64;
+const SHELL_SIDE_PAD = 24;
+const SHELL_MIN_WIDTH = 320;
+const SHELL_PAD_TOP = 96;
 const SHELL_PAD_RIGHT = 24;
 const SHELL_PAD_BOTTOM = 8;
+
+function desktopPetPosition(petWidth) {
+	const shellWidth = Math.max(SHELL_MIN_WIDTH, petWidth + SHELL_SIDE_PAD + SHELL_PAD_RIGHT);
+	return { x: Math.round((shellWidth - petWidth) / 2), y: SHELL_PAD_TOP };
+}
 
 const ROWS = { idle: 0, runningRight: 1, runningLeft: 2, waving: 3, jumping: 4, failed: 5, waiting: 6, running: 7, review: 8 };
 const FRAMES = [6, 8, 8, 4, 5, 8, 6, 6, 6];
@@ -39,6 +45,18 @@ const CSS = `
   border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.14));border-radius:10px;padding:4px 10px;
   font:12px/1.4 system-ui,sans-serif;opacity:0;transition:opacity .15s;pointer-events:none}
 .dsh-pet:hover .dsh-pet-bubble,.dsh-pet.dsh-pet-bubble-on .dsh-pet-bubble{opacity:1}
+.dsh-pet-bubble-pending{width:max-content;min-width:190px;max-width:min(300px,calc(100vw - 12px));padding:7px 9px;
+  white-space:normal;pointer-events:auto;cursor:default;filter:none}
+.dsh-pet-pending-message{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-weight:500}
+.dsh-pet-pending-actions{display:flex;justify-content:center;gap:6px;margin-top:6px;max-width:280px}
+.dsh-pet-pending-actions button{min-width:32px;max-width:132px;height:25px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  cursor:pointer;background:var(--dsw-alias-button-fill,rgba(255,255,255,.1));color:inherit;
+  border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.22));border-radius:7px;padding:2px 8px;font:12px/1.2 system-ui,sans-serif}
+.dsh-pet-pending-actions button:hover:not(:disabled){background:var(--dsw-alias-button-fill-hover,rgba(255,255,255,.18))}
+.dsh-pet-pending-actions button:disabled{cursor:wait;opacity:.55}
+.dsh-pet-pending-approve{color:#8de6a5!important}
+.dsh-pet-pending-reject{color:#ff9b9b!important}
+.dsh-pet-pending-error{margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;color:#ffb2b2;font-size:11px}
 .dsh-pet-hint{position:absolute;pointer-events:auto;bottom:16px;right:16px;max-width:260px;
   background:var(--dsw-alias-bg-float,rgba(28,30,36,.92));color:var(--dsw-alias-text-secondary,#ccc);
   border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.14));border-radius:12px;padding:10px 12px;
@@ -130,6 +148,28 @@ function moodDurationMs(moodState) {
 	return (frames / fps) * 1000 + 500;
 }
 
+
+function sessionPrefix(title) {
+	return typeof title === "string" && title.length > 0 ? `【${title}】` : "";
+}
+
+function pendingMessage(pending, total = 1) {
+	const prefix = sessionPrefix(pending?.sessionTitle);
+	const suffix = total > 1 ? `（另有 ${total - 1} 项）` : "";
+	if (pending?.kind === "approval") {
+		return `${prefix}${pending.reason ?? `需要你批准：${pending.toolName ?? "操作"}`}${suffix}`;
+	}
+	if (pending?.kind === "question") {
+		const question = pending.questions?.[0];
+		return `${prefix}${question?.question ?? "DSH 正在等你回答"}${suffix}`;
+	}
+	return `${prefix}DSH 正在等你${suffix}`;
+}
+
+function positiveNumber(value, fallback, minimum = 1000) {
+	return typeof value === "number" && Number.isFinite(value) && value >= minimum ? value : fallback;
+}
+
 export function PetOverlay({
 	stateSource,
 	fetchPets,
@@ -190,6 +230,11 @@ export function PetOverlay({
 			() => null,
 		);
 		useTicker();
+		const pendingList = Array.isArray(petState?.detail?.pending) ? petState.detail.pending : [];
+		const pending = pendingList[0] ?? null;
+		const pendingKey = typeof pending?.key === "string" ? pending.key : null;
+		const pendingSessionId = typeof pending?.sessionId === "string" ? pending.sessionId : null;
+		const pendingActionId = pendingKey === null ? null : `${pendingSessionId ?? ""}\u0000${pendingKey}`;
 
 		const [selected, setSelected] = useState(() => {
 			try {
@@ -201,10 +246,9 @@ export function PetOverlay({
 				return null;
 			}
 		});
-		const [position, setPosition] = useState(() =>
-			isDesktop ? { x: SHELL_PAD_LEFT, y: SHELL_PAD_TOP } : loadPosition(),
-		);
+		const [position, setPosition] = useState(() => (isDesktop ? desktopPetPosition(PET_W) : loadPosition()));
 		const [mood, setMood] = useState(null); // { state, start } one-shot override
+		const [pendingAction, setPendingAction] = useState({ key: null, busy: false, error: null });
 		const [hintDismissed, setHintDismissed] = useState(() => {
 			try {
 				return localStorage.getItem(STORAGE_HINT) === "1";
@@ -291,6 +335,63 @@ export function PetOverlay({
 			},
 			[probe],
 		);
+
+		useEffect(() => {
+			setPendingAction({ key: pendingActionId, busy: false, error: null });
+		}, [pendingActionId]);
+
+		const runPendingAction = useCallback(
+			(action) => {
+				if (pendingKey === null || typeof stateSource?.perform !== "function") {
+					setPendingAction({ key: pendingActionId, busy: false, error: "请打开 DSH 处理" });
+					return;
+				}
+				setPendingAction({ key: pendingActionId, busy: true, error: null });
+				Promise.resolve()
+					.then(() => stateSource.perform(action))
+					.catch((error) => {
+						setPendingAction({ key: pendingActionId, busy: false, error: String(error?.message ?? error).slice(0, 160) });
+					});
+			},
+			[pendingKey, pendingActionId, stateSource],
+		);
+
+		const openDsh = useCallback(() => {
+			const desktop = desktopRef.current;
+			if (desktop !== null && typeof desktop.openDsh === "function") desktop.openDsh();
+		}, []);
+
+		// Pending interactions own a configurable attention rhythm. Each stable
+		// request key gets an immediate gesture, then repeats; after the preset's
+		// escalation threshold the cadence tightens and the desktop shell may show
+		// one native notification (the main process deduplicates by request key).
+		useEffect(() => {
+			if (pendingKey === null || pending === null) return;
+			let timer = null;
+			let active = true;
+			const attention = personality?.attention ?? {};
+			const gesture = typeof attention.gesture === "string" ? attention.gesture : "waiting";
+			const repeatMs = positiveNumber(attention.repeatMs, 30000);
+			const escalateAfterMs = positiveNumber(attention.escalateAfterMs, 120000);
+			const escalatedRepeatMs = positiveNumber(attention.escalatedRepeatMs, 15000);
+			const requestedAt = typeof pending.requestedAt === "number" ? pending.requestedAt : Date.now();
+			const message = pendingMessage(pending, pendingList.length);
+			const pulse = () => {
+				if (!active) return;
+				const escalated = Date.now() - requestedAt >= escalateAfterMs;
+				triggerMood(gesture);
+				const desktop = desktopRef.current;
+				if (desktop !== null && typeof desktop.requestAttention === "function") {
+					desktop.requestAttention({ key: pendingKey, level: escalated ? "escalated" : "normal", message });
+				}
+				timer = setTimeout(pulse, escalated ? escalatedRepeatMs : repeatMs);
+			};
+			pulse();
+			return () => {
+				active = false;
+				if (timer !== null) clearTimeout(timer);
+			};
+		}, [pendingKey, pendingSessionId, pendingList.length, personality, triggerMood]);
 
 		// Single click / right-click gestures come from the personality preset.
 		const onPetClick = useCallback(() => {
@@ -431,13 +532,84 @@ export function PetOverlay({
 			}
 		} else if (pet !== null && position !== null) {
 			const isLive2D = pet.kind === "live2d";
+			const effectivePosition = isDesktop ? desktopPetPosition(petDims.w) : position;
 			const now = Date.now();
 			const activity = petState?.activity ?? "idle";
 			const moodActive = mood !== null && now - mood.start < moodDurationMs(mood.state);
 			const state = moodActive ? mood.state : activity;
 			const toolName = petState?.detail?.toolName;
+			const activeSessionTitle = petState?.detail?.sessionTitle;
 			const label = bubbleTextFor(personality, state);
-			const bubbleText = state === "running" && toolName !== undefined ? `${label}：${toolName}` : label;
+			const stateMessage = petState?.detail?.message;
+			const bubbleText = state === "running" && toolName !== undefined
+				? `${sessionPrefix(activeSessionTitle)}${label}：${toolName}`
+				: state === "failed" && typeof stateMessage === "string"
+					? `${sessionPrefix(activeSessionTitle)}${label}：${stateMessage}`
+					: `${sessionPrefix(activeSessionTitle)}${label}`;
+			const actionBusy = pendingAction.key === pendingActionId && pendingAction.busy;
+			const actionError = pendingAction.key === pendingActionId ? pendingAction.error : null;
+			let bubbleContent = bubbleText;
+			if (pending !== null && pendingKey !== null) {
+				let actions = null;
+				if (pending.kind === "approval") {
+					actions = (
+						<>
+							<button
+								type="button"
+								className="dsh-pet-pending-reject"
+								aria-label="拒绝"
+								disabled={actionBusy}
+								onClick={() => runPendingAction({ type: "pending/reject", key: pendingKey, sessionId: pendingSessionId })}
+							>
+								✕
+							</button>
+							<button
+								type="button"
+								className="dsh-pet-pending-approve"
+								aria-label="批准一次"
+								disabled={actionBusy}
+								onClick={() => runPendingAction({ type: "pending/approve", key: pendingKey, sessionId: pendingSessionId })}
+							>
+								✓
+							</button>
+						</>
+					);
+				} else if (pending.kind === "question" && pending.quickAnswer === true) {
+					const question = pending.questions?.[0];
+					actions = (question?.options ?? []).map((option) => (
+						<button
+							type="button"
+							key={option.label}
+							title={option.description}
+							disabled={actionBusy}
+							onClick={() => runPendingAction({ type: "pending/answer-option", key: pendingKey, sessionId: pendingSessionId, option: option.label })}
+						>
+							{option.label}
+						</button>
+					));
+				} else if (isDesktop) {
+					actions = (
+						<button type="button" disabled={actionBusy} onClick={openDsh}>
+							打开 DSH
+						</button>
+					);
+				}
+				bubbleContent = (
+					<div
+						className="dsh-pet-pending"
+						onClick={(event) => event.stopPropagation()}
+						onContextMenu={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+						}}
+						onPointerDown={(event) => event.stopPropagation()}
+					>
+						<div className="dsh-pet-pending-message" title={pendingMessage(pending, pendingList.length)}>{pendingMessage(pending, pendingList.length)}</div>
+						{actions !== null ? <div className="dsh-pet-pending-actions">{actions}</div> : null}
+						{actionError !== null ? <div className="dsh-pet-pending-error" title={actionError}>{actionError}</div> : null}
+					</div>
+				);
+			}
 
 			// Player-side parabolic lift for sprite pets only: the atlas jump row
 			// is subtle and clipped at the cell edges; Live2D models hop in-model.
@@ -464,8 +636,8 @@ export function PetOverlay({
 			content = (
 				<div className="dsh-pet-anchor">
 					<div
-						className={`dsh-pet${state !== "idle" && state !== "waving" && state !== "jumping" ? " dsh-pet-bubble-on" : ""}`}
-						style={{ left: position.x, top: position.y, transform: jumpLift > 0 ? `translateY(-${jumpLift}px)` : undefined }}
+						className={`dsh-pet${pending !== null || (state !== "idle" && state !== "waving" && state !== "jumping") ? " dsh-pet-bubble-on" : ""}`}
+						style={{ left: effectivePosition.x, top: effectivePosition.y, transform: jumpLift > 0 ? `translateY(-${jumpLift}px)` : undefined }}
 						title={`${pet.displayName} — ${pet.description}`}
 						onClick={onPetClick}
 						onContextMenu={onPetContextMenu}
@@ -487,7 +659,7 @@ export function PetOverlay({
 						) : (
 							<div className="dsh-pet-sprite" style={spriteStyle} />
 						)}
-						<div className="dsh-pet-bubble">{bubbleText}</div>
+						<div className={`dsh-pet-bubble${pending !== null ? " dsh-pet-bubble-pending" : ""}`}>{bubbleContent}</div>
 					</div>
 				</div>
 			);

@@ -83,8 +83,33 @@ console.log("Cubism Core global OK (Moc/Model present)");
 
 // --- apply wiring ------------------------------------------------------------
 const registrations = [];
+let smokeListSnapshot = { current: undefined, ids: [], byId: {} };
+let backgroundSnapshot = { running: true, pending: [], partial: null, runningCalls: [], openState: "idle" };
+let backgroundListener = noop;
+let backgroundOpenCalls = 0;
+const backgroundSession = {
+	getSnapshot: () => backgroundSnapshot,
+	subscribe: (listener) => {
+		backgroundListener = listener;
+		return noop;
+	},
+	open: async () => {
+		backgroundOpenCalls += 1;
+		backgroundSnapshot = {
+			running: true,
+			pending: [],
+			partial: null,
+			runningCalls: [{ name: "background-tool" }],
+			openState: "open",
+		};
+		backgroundListener();
+	},
+};
 const fakeCtx = {
-	sessions: { list: { getSnapshot: () => ({ current: undefined }), subscribe: () => noop } },
+	sessions: {
+		list: { getSnapshot: () => smokeListSnapshot, subscribe: () => noop },
+		binding: (id) => id === "background-session" ? { session: backgroundSession } : undefined,
+	},
 	slots: { register: (decl, component) => { registrations.push(decl); return noop; } },
 	effect: (fn) => fn(),
 	logger: { warn: noop },
@@ -101,4 +126,52 @@ if (overlay === undefined || overlay.id !== "dsh-pet") {
 	process.exit(1);
 }
 console.log("apply OK: slot registration =", JSON.stringify(overlay));
+
+// Explicit iframe embed mode must expose only the state/action bridge and
+// never register a second pet overlay inside DSH.
+const bridgeMessages = [];
+const parentWindow = {
+	postMessage: (message, targetOrigin) => bridgeMessages.push({ message, targetOrigin }),
+};
+window.self = window;
+window.top = parentWindow;
+window.parent = parentWindow;
+window.addEventListener = noop;
+window.removeEventListener = noop;
+location.search = "?dsh-pet-embed=1&dsh-pet-parent-origin=http%3A%2F%2F127.0.0.1%3A43123";
+smokeListSnapshot = {
+	current: undefined,
+	ids: ["background-session"],
+	byId: {
+		"background-session": { id: "background-session", displayTitle: "后台会话", running: true },
+	},
+};
+const beforeEmbedRegistrations = registrations.length;
+try {
+	plugin.apply(fakeCtx);
+} catch (error) {
+	console.error("SMOKE FAIL (embed apply):", error.message);
+	process.exit(1);
+}
+if (registrations.length !== beforeEmbedRegistrations) {
+	console.error("SMOKE FAIL: embed mode registered a duplicate overlay");
+	process.exit(1);
+}
+await new Promise((resolve) => setTimeout(resolve, 0));
+const embeddedStates = bridgeMessages.filter((entry) => entry.message?.type === "state" && entry.targetOrigin === "http://127.0.0.1:43123");
+const embeddedState = embeddedStates.at(-1);
+if (embeddedState === undefined) {
+	console.error("SMOKE FAIL: embed bridge did not publish state to the exact parent origin");
+	process.exit(1);
+}
+if (
+	backgroundOpenCalls !== 1 ||
+	embeddedState.message.state?.activity !== "running" ||
+	embeddedState.message.state?.detail?.sessionTitle !== "后台会话" ||
+	embeddedState.message.state?.detail?.toolName !== "background-tool"
+) {
+	console.error("SMOKE FAIL: embed bridge did not aggregate a background running session", JSON.stringify(embeddedState.message.state));
+	process.exit(1);
+}
+console.log("embed apply OK: lazy session hydrated, all-session state bridge, exact targetOrigin");
 console.log("SMOKE PASS");

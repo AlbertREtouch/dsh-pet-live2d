@@ -50,6 +50,11 @@ export function createPetStateBus(source) {
 	};
 
 	const getSnapshot = () => (disposed ? null : snapshot);
+	const perform = (action) => {
+		if (disposed) return Promise.reject(new Error("PetStateBus is disposed"));
+		if (typeof source.perform !== "function") return Promise.reject(new Error("PetStateSource does not support actions"));
+		return Promise.resolve().then(() => source.perform(action));
+	};
 
 	const dispose = () => {
 		if (disposed) return;
@@ -68,5 +73,5 @@ export function createPetStateBus(source) {
 		}
 	};
 
-	return { subscribe, getSnapshot, dispose };
+	return { subscribe, getSnapshot, perform, dispose };
 }

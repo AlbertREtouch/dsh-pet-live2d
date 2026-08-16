@@ -17,6 +17,8 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
     1. ?assetBase=<url>   (Electron injects the in-process server port)
     2. window.dshPetDesktop (reserved for future preload-provided config)
     3. the default dev-server port below.
+  Electron also passes `dshOrigin`; this page then hosts a hidden explicit
+  embed-mode iframe and consumes its versioned, origin-locked state bridge.
 -->
 <script src="./lib/standalone.js"></script>
 <script>
@@ -28,6 +30,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
 		bridge?.config?.assetBase ??
 		"http://127.0.0.1:3410/api";
 	const initialPetId = params.get("dsh-pet");
+	const dshOrigin = params.get("dshOrigin");
 	const desktopWindow =
 		bridge !== null
 			? {
@@ -35,13 +38,37 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
 					dragMove: () => bridge.dragMove(),
 					setPetBounds: (bounds) => bridge.setPetBounds(bounds),
 					dragEnd: () => bridge.dragEnd(),
+					openDsh: () => bridge.openDsh(),
+					requestAttention: (payload) => bridge.requestAttention(payload),
 				}
 			: null;
+	let stateSource = null;
+	if (bridge !== null && dshOrigin !== null && typeof PetStandalone.createDshBridgeStateSource === "function") {
+		try {
+			const frame = document.createElement("iframe");
+			frame.hidden = true;
+			frame.title = "DSH state bridge";
+			document.body.appendChild(frame);
+			stateSource = PetStandalone.createDshBridgeStateSource({
+				frame,
+				dshOrigin,
+				parentOrigin: window.location.origin,
+			});
+			bridge.onDshStatus((status) => stateSource.setConnectionStatus(status));
+			Promise.resolve(bridge.getDshStatus()).then((status) => {
+				if (status !== null) stateSource?.setConnectionStatus(status);
+			});
+		} catch (error) {
+			console.warn("[dsh-pet] bridge setup failed", error);
+			stateSource = null;
+		}
+	}
 
 	const api = PetStandalone.mount({
 		target: document.getElementById("pet-root"),
 		assetBase,
 		selectedPetId: initialPetId !== null && initialPetId.length > 0 ? initialPetId : null,
+		stateSource,
 		desktopWindow,
 		onPetChange: (id) => {
 			window.__dshPetCurrentId = id;

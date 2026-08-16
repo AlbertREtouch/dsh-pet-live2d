@@ -1,5 +1,5 @@
 /**
- * dsh-pet Electron shell — Phase 1 "独立宠物（双击图标即开）".
+ * dsh-pet Electron shell — Phase 2 "宠物反客为主".
  *
  * Responsibilities (keep this file thin; all pet logic lives in the shared
  * kernel / pet server):
@@ -12,13 +12,14 @@
  *    built-in personality, refresh, quit
  *  - remember the shell window position in the app userData directory
  *
- * The shell never spawns or touches DSH in this phase; "pet quits, harness
- * lives" is structurally guaranteed because no DSH handle exists here.
+ * DSH is probed/reused or launched detached. The shell intentionally keeps no
+ * kill path: "pet quits, harness lives" remains structurally guaranteed.
  */
-const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, Notification, Tray, nativeImage, screen, shell } = require("electron");
 const { createServer } = require("node:http");
-const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readFile, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
+const { createDshLifecycle, resolveDshConfig } = require("./dsh-lifecycle.cjs");
 const {
 	buildWindowShape,
 	clampBoundsToVisiblePet,
@@ -34,7 +35,8 @@ const IS_E2E = process.argv.includes(E2E_FLAG);
 
 // Must match the shell-mode paddings used by PetOverlay when desktopWindow
 // is provided (renderer reports only pet width/height; main derives size).
-const SHELL_PAD = { left: 24, top: 64, right: 24, bottom: 8 };
+const SHELL_PAD = { left: 24, top: 96, right: 24, bottom: 8 };
+const SHELL_MIN_WIDTH = 320;
 const DEFAULT_WINDOW = { width: 360, height: 224 };
 const COCKPIT_EXTRA_WIDTH = 360;
 const COCKPIT_MAX_HEIGHT = 600;
@@ -59,6 +61,11 @@ const state = {
 	e2eCursor: null,
 	windowShape: [],
 	needsDefaultPlacement: false,
+	dshLifecycle: null,
+	dshConfig: resolveDshConfig(),
+	dshStatus: null,
+	attentionKeys: new Set(),
+	notifications: new Set(),
 };
 
 async function loadPetModule() {
@@ -69,6 +76,44 @@ async function loadPetModule() {
 
 function buildAssetBase() {
 	return `http://127.0.0.1:${state.port}/api`;
+}
+
+function buildShellOrigin() {
+	return `http://127.0.0.1:${state.port}`;
+}
+
+const SHELL_ASSETS = new Map([
+	["/", { file: path.join(__dirname, "..", "standalone.html"), type: "text/html; charset=utf-8" }],
+	["/standalone.html", { file: path.join(__dirname, "..", "standalone.html"), type: "text/html; charset=utf-8" }],
+	["/lib/standalone.js", { file: path.join(__dirname, "..", "lib", "standalone.js"), type: "text/javascript; charset=utf-8" }],
+	["/lib/standalone.js.map", { file: path.join(__dirname, "..", "lib", "standalone.js.map"), type: "application/json; charset=utf-8" }],
+]);
+
+function serveShellAsset(req, res) {
+	if (req.method !== "GET" && req.method !== "HEAD") return false;
+	let pathname;
+	try {
+		pathname = new URL(req.url, buildShellOrigin()).pathname;
+	} catch {
+		return false;
+	}
+	const asset = SHELL_ASSETS.get(pathname);
+	if (asset === undefined) return false;
+	readFile(asset.file, (error, body) => {
+		if (error !== null) {
+			res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+			res.end("Not found");
+			return;
+		}
+		res.writeHead(200, {
+			"content-type": asset.type,
+			"content-length": body.length,
+			"cache-control": "no-store",
+			"x-content-type-options": "nosniff",
+		});
+		res.end(req.method === "HEAD" ? undefined : body);
+	});
+	return true;
 }
 
 function workAreaFor(rect) {
@@ -135,9 +180,22 @@ function readCursor() {
 	return state.e2eCursor ?? screen.getCursorScreenPoint();
 }
 
+function shellLayout() {
+	const petWidth = state.petBounds.width ?? 106;
+	const petHeight = state.petBounds.height ?? 114;
+	const width = Math.max(SHELL_MIN_WIDTH, petWidth + SHELL_PAD.left + SHELL_PAD.right);
+	const left = Math.round((width - petWidth) / 2);
+	return {
+		size: { width, height: petHeight + SHELL_PAD.top + SHELL_PAD.bottom },
+		pet: { x: left, y: SHELL_PAD.top, width: petWidth, height: petHeight },
+		pad: { left, top: SHELL_PAD.top, right: width - left - petWidth, bottom: SHELL_PAD.bottom },
+	};
+}
+
 function applyWindowShape() {
 	if (state.win === null || state.win.isDestroyed()) return;
 	const bounds = state.win.getBounds();
+	const layout = shellLayout();
 	state.windowShape = buildWindowShape({
 		windowSize: { width: bounds.width, height: bounds.height },
 		petBounds:
@@ -145,7 +203,7 @@ function applyWindowShape() {
 				? null
 				: { width: state.petBounds.width, height: state.petBounds.height },
 		debugPanel: state.debugPanel,
-		pad: SHELL_PAD,
+		pad: layout.pad,
 	});
 	// Electron exposes native window shapes on Windows/Linux. Phase 1's
 	// transparent-input bug is Windows-specific, so keep other platforms on
@@ -170,7 +228,7 @@ function moveWindowForDrag(cursor) {
 		size,
 		workArea: screen.getDisplayNearestPoint(cursor).workArea,
 		petBounds: state.petBounds,
-		pad: SHELL_PAD,
+		pad: shellLayout().pad,
 	});
 	const { bounds } = movement;
 	// Rebase on a clamped axis so moving the cursor one pixel back from an edge
@@ -183,12 +241,7 @@ function moveWindowForDrag(cursor) {
 }
 
 function compactSize() {
-	const petWidth = state.petBounds.width ?? 106;
-	const petHeight = state.petBounds.height ?? 114;
-	return {
-		width: petWidth + SHELL_PAD.left + SHELL_PAD.right,
-		height: petHeight + SHELL_PAD.top + SHELL_PAD.bottom,
-	};
+	return shellLayout().size;
 }
 
 function cockpitSize() {
@@ -206,17 +259,23 @@ function applyWindowSize({ placeDefault = false } = {}) {
 	if (state.win === null || state.win.isDestroyed() || state.petBounds.width === null) return;
 	const current = state.win.getBounds();
 	const size = state.debugPanel ? cockpitSize() : compactSize();
+	const layout = shellLayout();
 	let bounds;
 	if (placeDefault) {
 		const workArea = screen.getPrimaryDisplay().workArea;
-		bounds = { ...defaultPositionForSize(size, workArea), width: size.width, height: size.height };
+		bounds = {
+			x: Math.round(workArea.x + workArea.width - (layout.pet.x + layout.pet.width) - 16),
+			y: Math.round(workArea.y + workArea.height - (layout.pet.y + layout.pet.height) - 16),
+			width: size.width,
+			height: size.height,
+		};
 	} else if (state.debugPanel) {
 		// The cockpit is a conventional control panel and should remain wholly
 		// usable when explicitly opened.
 		bounds = clampBounds({ x: current.x, y: current.y, width: size.width, height: size.height });
 	} else {
 		const proposed = { x: current.x, y: current.y, width: size.width, height: size.height };
-		bounds = clampBoundsToVisiblePet(proposed, workAreaFor(proposed), state.petBounds, SHELL_PAD);
+		bounds = clampBoundsToVisiblePet(proposed, workAreaFor(proposed), state.petBounds, layout.pad);
 	}
 	state.position = { x: bounds.x, y: bounds.y };
 	state.win.setBounds(bounds, false);
@@ -271,9 +330,10 @@ function createWindow() {
 	// reports a pet size, applyWindowShape narrows native drawing/input to the
 	// bubble + pet regions and transparent margins fall through.
 	applyWindowShape();
-	state.win.loadFile(path.join(__dirname, "..", "standalone.html"), {
-		query: { assetBase: buildAssetBase() },
-	});
+	const shellUrl = new URL("/standalone.html", buildShellOrigin());
+	shellUrl.searchParams.set("assetBase", buildAssetBase());
+	shellUrl.searchParams.set("dshOrigin", state.dshConfig.origin);
+	state.win.loadURL(shellUrl.href);
 	state.win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	// Hard guarantee: the pet is a pure mouse overlay and must NEVER take
 	// keyboard/activation focus from the app the user is working in. This
@@ -307,6 +367,18 @@ function trayIcon() {
 	return nativeImage.createEmpty();
 }
 
+async function openDshInterface() {
+	const available = await state.dshLifecycle?.ensureAvailable();
+	if (available === true || state.dshStatus?.online === true || state.dshStatus?.running === true) {
+		await shell.openExternal(state.dshConfig.origin);
+		return true;
+	}
+	if (state.tray !== null && process.platform === "win32") {
+		state.tray.displayBalloon?.({ title: "DSH Pet", content: state.dshStatus?.message ?? "DSH 当前不可用" });
+	}
+	return false;
+}
+
 function rebuildMenu() {
 	if (state.tray === null) return;
 	const skinItems = state.pets.map((pet) => ({
@@ -334,6 +406,10 @@ function rebuildMenu() {
 		{
 			label: "性格",
 			submenu: [{ label: "经典（内置）", type: "radio", checked: true }],
+		},
+		{
+			label: `打开 DSH（${state.dshStatus?.online === true ? "已连接" : state.dshStatus?.phase === "plugin-missing" ? "缺少桌宠插件" : "连接中"}）`,
+			click: () => openDshInterface().catch(() => {}),
 		},
 		{ type: "separator" },
 		{
@@ -391,10 +467,21 @@ function createTray() {
 	rebuildMenu();
 }
 
+function updateDshStatus(status) {
+	state.dshStatus = status;
+	if (state.win !== null && !state.win.isDestroyed()) {
+		state.win.webContents.send("dsh-pet:dsh-status", status);
+	}
+	rebuildMenu();
+}
+
 async function startPetServer() {
 	const { createPetServer } = await loadPetModule();
 	state.petServer = createPetServer({ petsRoot: process.env.DSH_PET_ROOT });
-	state.server = createServer((req, res) => state.petServer.handleRequest(req, res));
+	state.server = createServer((req, res) => {
+		if (serveShellAsset(req, res)) return;
+		state.petServer.handleRequest(req, res);
+	});
 	await new Promise((resolve, reject) => {
 		state.server.once("error", reject);
 		state.server.listen(0, "127.0.0.1", resolve);
@@ -403,6 +490,31 @@ async function startPetServer() {
 }
 
 function installIpc() {
+	ipcMain.handle("dsh-pet:get-dsh-status", (event) => {
+		if (state.win === null || event.sender !== state.win.webContents) return null;
+		return state.dshStatus;
+	});
+	ipcMain.on("dsh-pet:open-dsh", (event) => {
+		if (state.win === null || event.sender !== state.win.webContents) return;
+		openDshInterface().catch(() => {});
+	});
+	ipcMain.on("dsh-pet:attention", (event, payload) => {
+		if (state.win === null || event.sender !== state.win.webContents) return;
+		const key = typeof payload?.key === "string" ? payload.key : "";
+		const level = payload?.level;
+		const message = typeof payload?.message === "string" ? payload.message.slice(0, 240) : "DSH 正在等待你的操作";
+		if (key.length === 0 || key.length > 256 || (level !== "normal" && level !== "escalated")) return;
+		if (level !== "escalated" || state.attentionKeys.has(key)) return;
+		state.attentionKeys.add(key);
+		if (state.attentionKeys.size > 64) state.attentionKeys.delete(state.attentionKeys.values().next().value);
+		if (Notification.isSupported()) {
+			const notification = new Notification({ title: "DSH 等待你的操作", body: message, silent: false });
+			state.notifications.add(notification);
+			notification.on("click", () => openDshInterface().catch(() => {}));
+			notification.on("close", () => state.notifications.delete(notification));
+			notification.show();
+		}
+	});
 	ipcMain.on("dsh-pet:report-pet", (event, raw) => {
 		if (state.win === null || event.sender !== state.win.webContents) return;
 		if (typeof raw === "string" && SAFE_ID.test(raw) && raw !== state.currentPetId) {
@@ -485,11 +597,13 @@ async function runE2E() {
 	try {
 		await waitFor(() => state.currentPetId !== null, "renderer to report the mounted pet", deadline);
 		await waitFor(() => state.petBounds.width !== null, "renderer to report pet bounds", deadline);
+		await waitFor(() => state.dshStatus?.online === true, "DSH bridge endpoint to be online", deadline);
 		const startupBounds = state.win.getBounds();
 		const startupWorkArea = screen.getDisplayMatching(startupBounds).workArea;
+		const startupLayout = shellLayout();
 		const startupPlacedWithRealSize =
-			startupBounds.x + startupBounds.width === startupWorkArea.x + startupWorkArea.width - 16 &&
-			startupBounds.y + startupBounds.height === startupWorkArea.y + startupWorkArea.height - 16;
+			startupBounds.x + startupLayout.pet.x + startupLayout.pet.width === startupWorkArea.x + startupWorkArea.width - 16 &&
+			startupBounds.y + startupLayout.pet.y + startupLayout.pet.height === startupWorkArea.y + startupWorkArea.height - 16;
 		const catalog = await httpGetJson("/api/pets");
 		const renderer = await state.win.webContents.executeJavaScript(
 			`JSON.stringify({
@@ -544,6 +658,52 @@ async function runE2E() {
 				deadline,
 			);
 			cockpitToggled = true;
+		}
+		let pendingApprovalVisible = false;
+		let pendingSessionTitleVisible = false;
+		try {
+			await waitFor(
+				async () => (await state.win.webContents.executeJavaScript(`document.querySelector(".dsh-pet-pending-approve") !== null`)) === true,
+				"pending approval bubble",
+				deadline,
+			);
+			pendingApprovalVisible = true;
+			pendingSessionTitleVisible = await state.win.webContents.executeJavaScript(
+				`document.querySelector(".dsh-pet-pending-message")?.textContent?.includes("后台审批会话") === true`,
+			);
+		} catch {
+			pendingApprovalVisible = false;
+			pendingSessionTitleVisible = false;
+		}
+		const spriteDiagnostics = await state.win.webContents.executeJavaScript(`(async () => {
+			const node = document.querySelector(".dsh-pet-sprite");
+			if (node === null) return null;
+			const style = getComputedStyle(node);
+			let imageLoaded = false;
+			const match = /^url\\(["']?(.*?)["']?\\)$/.exec(style.backgroundImage);
+			if (match !== null) {
+				const image = new Image();
+				image.src = match[1];
+				try {
+					await image.decode();
+					imageLoaded = image.naturalWidth > 0;
+					await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+				} catch {}
+			}
+			const rect = node.getBoundingClientRect();
+			return {
+				backgroundImage: style.backgroundImage,
+				backgroundPosition: style.backgroundPosition,
+				display: style.display,
+				opacity: style.opacity,
+				imageLoaded,
+				rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+			};
+		})()`);
+		const screenshotPath = process.env.DSH_PET_E2E_SCREENSHOT;
+		if (typeof screenshotPath === "string" && screenshotPath.length > 0) {
+			const image = await state.win.webContents.capturePage();
+			writeFileSync(screenshotPath, image.toPNG());
 		}
 
 		// Synthetic pointer drag: verifies the renderer turns a pet drag into a
@@ -618,9 +778,10 @@ async function runE2E() {
 		// pixel of reverse cursor movement must then move the window one pixel.
 		const beforeEdgeBounds = state.win.getBounds();
 		const edgeWorkArea = screen.getDisplayMatching(beforeEdgeBounds).workArea;
+		const edgeLayout = shellLayout();
 		const edgeGrab = {
-			x: SHELL_PAD.left + Math.floor(state.petBounds.width / 2),
-			y: SHELL_PAD.top + Math.floor(state.petBounds.height / 2),
+			x: edgeLayout.pet.x + Math.floor(state.petBounds.width / 2),
+			y: edgeLayout.pet.y + Math.floor(state.petBounds.height / 2),
 		};
 		const edgeCursor = {
 			x: edgeWorkArea.x + edgeWorkArea.width - 1,
@@ -657,6 +818,10 @@ async function runE2E() {
 			switchedPet,
 			switchedKind,
 			cockpitToggled,
+			dshConnected: state.dshStatus?.online === true,
+			pendingApprovalVisible,
+			pendingSessionTitleVisible,
+			spriteDiagnostics,
 			dragMoved,
 			edgeDragFollowed,
 			clickDragStateCleared,
@@ -693,6 +858,12 @@ if (!gotLock) {
 		await startPetServer();
 		createWindow();
 		createTray();
+		state.dshLifecycle = createDshLifecycle({
+			config: state.dshConfig,
+			onStatus: updateDshStatus,
+		});
+		state.dshStatus = state.dshLifecycle.getStatus();
+		state.dshLifecycle.start();
 		await refreshPets();
 		state.refreshTimer = setInterval(() => {
 			refreshPets().catch(() => {});
@@ -705,6 +876,7 @@ if (!gotLock) {
 
 	app.on("before-quit", () => {
 		state.quitting = true;
+		state.dshLifecycle?.stop();
 		savePosition();
 		if (state.refreshTimer !== null) clearInterval(state.refreshTimer);
 		if (state.server !== null) state.server.close();

@@ -11,6 +11,7 @@
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { createMockStateSource } from "../adapters/mock.js";
+export { createDshBridgeStateSource } from "../adapters/dsh-embed.js";
 import { PetOverlay, PET_CSS } from "../core/PetOverlay.jsx";
 
 function consoleProbe(event, data) {

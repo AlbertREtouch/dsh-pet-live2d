@@ -11,6 +11,7 @@
 - 会话状态感知：空闲 / 思考 / 工具调用 / 等待 / 出错（像素宠物映射到 9 行动画；Live2D 映射到动作组）
 - Live2D：自动眨眼、视线跟随、呼吸/物理、空闲打盹与随机小动作；动作由 motion3.json 驱动，也可纯参数驱动
 - **试驾台**（`?dsh-pet-debug=1`）：滑杆面板实时驱动模型参数，校准"参数→观感"
+- **反客为主**：独立宠物会复用或按需启动 DSH；pending 审批/单选问题直接显示气泡按钮
 - 内置诊断：`?dsh-pet=<id>` 深链选择；浏览器自报诊断写入 `~/.dsh/pets-echo.log`
 
 ## 架构
@@ -90,6 +91,29 @@ npm run pack               # 出便携版 + NSIS 安装包（dist/DSH Pet-0.1.0-
 - 壳是薄封装，不碰 DSH：宠物退出/重启/崩溃天然不会影响任何 harness。
 - 无壳浏览器调试入口：`node scripts/dev-standalone.mjs` → `http://127.0.0.1:3410/`。
 
+## 宠物连接与启动 DSH（Phase 2）
+
+独立壳启动后先探测 `127.0.0.1:3080`：桥接插件已就绪就直接复用；端口上已有 DSH、但插件缺失时只提示，不会再启动第二个实例；完全未运行时才以 `detached + unref` 启动 `dsh web`。退出、重启或崩溃桌宠都不会关闭 DSH，断线后桌宠保持运行并自动重连。
+
+- `DSH_PET_DSH_PORT`：DSH 端口，默认 `3080`。
+- `DSH_PET_DSH_COMMAND`：显式指定 DSH 可执行文件；默认先查 PATH/全局 npm shim，再复用本机已有的 npx DSH 缓存。
+- `DSH_PET_DSH_ARGS`：JSON 字符串数组形式的 argv 覆盖；默认 `["web","--port","<port>"]`。
+- `DSH_PET_DSH_AUTOSTART=0`：只连接，不自动启动。
+
+连接使用隐藏 iframe 的显式嵌入模式：`?dsh-pet-embed=1` 且页面确实位于 iframe 内时，DSH 插件只报告状态、不渲染第二只宠物。双向 `postMessage` 固定协议版本，并同时校验 loopback origin、对端 window 与消息 channel；发送端始终使用精确 `targetOrigin`，不使用 `*`。
+
+桌面桥默认聚合**全部会话**，不依赖隐藏 iframe 自己的 `sessions.list.current`：任一会话进入 running 或 pending 都会被订阅并反映到宠物；全部会话空闲时才回退到 current。对活跃 binding 会调用幂等的 `session.open()` 来补齐 `partial` / `runningCalls` 事件窗口，但绝不调用会切换前台选择的 `sessions.open(id)`，也不会实例化所有历史空闲会话。DSH 页面内直接渲染的宠物仍只跟随该页面的 current session。
+
+会话出现 pending 后，宠物会按性格配置的 `attention` 节奏提醒：
+
+- 审批显示明确的 **✓/✕** 按钮，分别发送 `allowed-once` / `rejected`；
+- 单个普通单选问题直接显示选项按钮；
+- 气泡标明请求所属 session；多个 session 同时 pending 时按请求出现顺序逐个展示，并提示剩余数量；
+- 多选、自由文本、批量问题与 plan review 引导打开完整 DSH 界面；
+- 请求消失后气泡和重复提醒自动恢复。
+
+升级现有正在运行的 DSH 插件后，需要手动重启一次 `dsh web` 以清掉 Node ESM/client bundle 缓存；之后桌宠会自行连接。测试不会自动点击审批按钮。
+
 ### 卸载
 
 1. 从 `~/.dsh/profiles/web/cordis.patch.yml` 删除 `dsh-pet` 条目（先 `[]` 再删，避免回滚问题）。
@@ -160,6 +184,7 @@ node .dsh/skills/pet-hatch/build-atlas.mjs \
 
 ```bash
 npm run build:client          # esbuild 双目标：DSH bundle（lib/client.js）+ standalone bundle（lib/standalone.js，含 React）
+npm run test:phase2           # 多会话聚合/懒加载、pending 动作编码、严格 postMessage 校验、DSH 生命周期/防双开
 node scripts/smoke-client.mjs # Node 桩环境：DSH bundle 执行 + apply 接线
 node scripts/smoke-standalone.mjs # Node 桩环境：standalone bundle 执行（不依赖 DSH seed table）
 node scripts/test-pet-server.mjs  # createPetServer：目录/图集/穿越/坏 URI/echo 上限/HEAD/junction
