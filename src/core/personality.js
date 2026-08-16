@@ -13,6 +13,15 @@ export const DEFAULT_PERSONALITY = Object.freeze({
 		click: "waving",
 		contextMenu: "failed",
 	}),
+	// Pending-interaction reminder rhythm. The first cue is immediate; a long
+	// wait repeats more often and may ask the desktop shell for one native
+	// notification. Preset files can tune this without changing the renderer.
+	attention: Object.freeze({
+		gesture: "waiting",
+		repeatMs: 30000,
+		escalateAfterMs: 120000,
+		escalatedRepeatMs: 15000,
+	}),
 	// Activity key -> sprite atlas row. Unknown keys fall back to "idle".
 	stateMapping: Object.freeze({
 		idle: "idle",

@@ -9,6 +9,7 @@
  * file only knows how to connect them to DSH.
  */
 import { createDshStateSource } from "../adapters/dsh-state.js";
+import { installDshEmbedHostBridge, readDshEmbedConfig } from "../adapters/dsh-embed.js";
 import { PetOverlay, PET_CSS } from "../core/PetOverlay.jsx";
 import { probe } from "./probe.js";
 
@@ -25,7 +26,27 @@ function createFetchPets(assetBase) {
 }
 
 export function apply(ctx) {
-	const stateSource = createDshStateSource(ctx.sessions);
+	const embed = readDshEmbedConfig();
+	// The DSH-page overlay follows that page's current session. The standalone
+	// desktop bridge instead aggregates every running/pending session because
+	// its hidden iframe has an independent, potentially stale current selection.
+	const stateSource = createDshStateSource(ctx.sessions, { watch: embed === null ? "current" : "all" });
+	if (embed !== null) {
+		ctx.effect(() => {
+			const disposeBridge = installDshEmbedHostBridge({
+				stateSource,
+				parentOrigin: embed.parentOrigin,
+			});
+			probe("embed-mounted", { parentOrigin: embed.parentOrigin, version: 1 });
+			return () => {
+				disposeBridge();
+				stateSource.dispose?.();
+			};
+		}, "dsh-pet: embedded state/action bridge");
+		// Explicit embed mode is state-only. Rendering here would create a second
+		// pet inside the hidden DSH iframe owned by the desktop shell.
+		return;
+	}
 	// Create the catalog loader ONCE. The slot host may re-render the overlay
 	// component frequently; a fresh function identity per render would restart
 	// the 30s poll effect every time and can spin the shell.

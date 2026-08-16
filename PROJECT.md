@@ -15,12 +15,12 @@
 - 仓库 fork 自 `YilunLi-999/dsh-pet-live2d` → `AlbertREtouch/dsh-pet-live2d`（public），Sapling 克隆于 `C:\MyCodeProject\live2D_pet`。
 - **上游同步策略：不跟进上游**（用户决策，2026-08-14）。本项目按自己的方向演进。
 
-## 2. 当前状态（2026-08-15）
+## 2. 当前状态（2026-08-16）
 
 - 插件形态可用：浏览器半注册 `shell.overlay`，服务端半注册 `/api/pets` 路由。
 - 已确认的架构演进方向：把宠物从 DSH 插件形态解耦为**独立主体**，DSH 降级为状态源之一。
-- 最新进展：**Phase 0 与 Phase 1 均已完成，Electron 独立桌宠通过用户真实桌面验收**。独立壳、运行时切肤、Live2D 参数试驾台、安装包/便携版、npm 发布入口均已落地；透明区域不再拦截后方应用，宠物在屏幕边缘快速拖放与反向回拖保持跟手，真实尺寸右下角初始化无先天死区。
-- 关键测试基线：`test-host-logic.mjs` ✅、`smoke-client.mjs` ✅、`smoke-standalone.mjs` ✅、`test-pet-server.mjs` ✅、`test-electron-window-logic.mjs` ✅、`e2e-electron.mjs`（dev + 打包产物，sprite + Live2D）✅、`e2e-sprite.mjs`（DSH 实机）✅、`e2e-live2d.mjs`（DSH 实机，用户提供模型）✅。
+- 最新进展：**Phase 0、Phase 1 与 Phase 2 均已完成，并通过用户真实环境验收**。Electron 独立桌宠可以复用或按需启动 DSH，跨全部 session 聚合运行/pending 状态，在气泡中提醒并处理安全白名单内的审批与单选；活跃后台 session 的惰性事件窗口会按需加载，且不会改变 DSH 前台选择。
+- 关键测试基线：`test:phase2` ✅、`test-host-logic.mjs` ✅、`smoke-client.mjs` ✅、`smoke-standalone.mjs` ✅、`test-pet-server.mjs` ✅、`test-electron-window-logic.mjs` ✅、`e2e-electron.mjs`（dev + 打包产物，sprite + Live2D）✅、`e2e-sprite.mjs`（DSH 实机）✅、`e2e-live2d.mjs`（DSH 实机，用户提供模型）✅。
 
 ## 3. 核心设计决策（已确认，改动需用户重新批准）
 
@@ -43,7 +43,7 @@
 | 播放器（client plugin） | `src/client/index.js` → `lib/client.js` | DSH 胶水：注册 `shell.overlay`；接线会话/宠物目录/诊断 |
 | 独立桌面壳 | `electron/main.cjs` + `electron/preload.cjs` + `standalone.html` | Electron 紧凑透明窗口、原生命中区域、拖动/位置恢复、托盘与本地资产服务 |
 | 共享内核 | `src/core/` | `PetOverlay`（渲染+交互）、`PetStateBus`、性格预设；不感知 DSH |
-| 状态源适配器 | `src/adapters/` | `dsh-state.js`（ctx.sessions → PetState）、`mock.js`（演示源） |
+| 状态源适配器 | `src/adapters/` | `dsh-state.js`（ctx.sessions → PetState，current/all 两种观察模式）、`dsh-embed.js`（严格跨窗口状态/动作桥）、`mock.js`（演示源） |
 | 资产服务（host plugin） | `lib/index.js` | `createPetServer()` 工厂：DSH 注册或裸 `http.createServer`；扫描 `~/.dsh/pets/<id>/` |
 | Live2D 渲染器 | `src/client/live2d/PetLive2D.js`（326 行） | PIXI 240×340 透明 canvas；`autoUpdate:false` + `beforeModelUpdate` 参数写入 |
 | Cubism Core 引导 | `src/client/live2d/setup.js`（20 行） | 文本打包 + 间接 eval，**原样保留** |
@@ -113,12 +113,15 @@ interface PetStateSource {
 - 里程碑达成：不安装 DSH 也能双击打开、切换并拖动活宠物。
 
 ### Phase 2：反客为主（宠物启动 DSH）
-- **首批功能（已确认，2026-08-14）**：提醒 + 快捷批准——会话 `pending` 展开成气泡提醒（`attention` 节奏可配置）；批准/拒绝用气泡旁 **✓/✕ 按钮**；状态源增加可选 `perform(action)` 跨进程动作通道；单选提问渲染选项按钮，复杂提问引导回 DSH 界面。
-- 先探测 DSH 是否已运行，已运行则复用，绝不双开；端口可配置（默认 3080）。
-- 未运行时 `detached + unref` 拉起 `dsh web`；**宠物退出绝不关闭 DSH**。
-- 嵌入模式：`?dsh-pet-embed=1` 且 `window.self !== window.top`；插件只报告状态不渲染；`postMessage` 双向 origin 白名单，拒绝 `*`；消息带 `version`。
-- DSH 挂掉自动重连，宠物不受影响。
-- 里程碑：宠物是主人，DSH 是按需连接的电源插座。
+
+> 状态：✅ 完成（2026-08-16；DSH 生命周期、pending 快捷交互、多 session 聚合与状态细分均已通过自动化及用户真实环境验收）。
+
+- **提醒 + 快捷响应**：会话 `pending` 展开成气泡提醒，频率由性格 `attention` 配置；审批使用 **✓/✕** 按钮，仅发送 `allowed-once` / `rejected`；普通单选直接显示选项，多选、文本、批量问题与 plan review 引导打开完整 DSH。状态源通过可选 `perform(action)` 执行白名单动作，并从当前 live pending wait 解析真实响应目标。
+- **DSH 生命周期**：Electron 先探测可配置端口（默认 3080），已有 DSH 则复用；未运行时以 `detached + unref` 拉起 `dsh web`。端口被非 DSH 服务占用时进入 `plugin-missing`，不重复启动；断线后后台重连。**宠物退出绝不关闭 DSH**。
+- **严格嵌入桥**：桌面壳以 `?dsh-pet-embed=1` 加载隐藏 DSH iframe；插件只报告状态、不渲染第二只宠物。双向 `postMessage` 固定协议版本并同时校验 `origin`、`source`、channel，发送使用精确 target origin，拒绝 `*`。
+- **全 session 聚合**：DSH 页面内宠物使用 `watch: "current"`；桌面 embed 使用 `watch: "all"`，根据 `sessions.list.byId` 聚合所有 running/pending 会话，pending 优先并携带 `sessionId` / `sessionTitle`。动作以 `sessionId + key` 精确路由，相同 key 跨 session 时拒绝模糊操作；全部空闲时才回退 current。
+- **惰性状态 hydration**：只实例化并订阅实际 running/pending 的 binding，并调用 binding 自身幂等的 `session.open()` 补齐 `partial` / `runningCalls` 事件窗口；不调用会切换前台选择的全局 `sessions.open(id)`，也不加载所有历史空闲会话。hydration 前使用列表级 `running` 兜底；完成后细分为工具调用 `running`、生成内容 `review`、确实无 partial/tool 的 `waiting`。
+- 里程碑达成：宠物成为独立主体，DSH 是可复用、可拉起、可重连的状态与动作来源。
 
 ### Phase 3：多状态源 + 性格预设
 - 状态源注册表配置化，优先级默认：DSH failed > 任一源 running > waiting > review > idle。
@@ -135,6 +138,8 @@ interface PetStateSource {
 - Cubism Core UMD 当代码打包会覆写 bundle 导出；必须文本打包 + 间接 `(0, eval)` 全局求值。
 - 修改 `cordis.patch.yml` 必须先写空列表 `[]` 等卸载再写新条目；写 package.json 不能用带 BOM 的 PowerShell `Set-Content`。
 - Node ESM 缓存：改代码后同 specifier 仍返回旧模块，换 specifier 或重启 `dsh web`。
+- DSH `sessions.binding(id)` 是惰性的，不会自动加载该 session 的事件窗口；仅凭列表级 `running` 无法区分工具调用、partial 与无输出等待。桌面全局观察必须对活跃 binding 调用其 `session.open()` 完成 hydration。
+- binding 的 `session.open()` 与全局 `sessions.open(id)` 语义不同：前者加载实例事件窗口且可幂等调用，后者会改变 DSH 前台 current selection；桌面状态观察禁止使用后者。
 
 ## 8. 许可
 

@@ -36,6 +36,7 @@
     "build:all": "node scripts/make-sample-source.mjs && node .dsh/skills/pet-hatch/build-atlas.mjs --source sample-source.png --name dsh-kitten --display-name \"DSH Kitten\" --description \"A tiny pixel kitten that watches you code.\" --out sample-pet --format webp && node scripts/build-client.mjs",
     "make:tray-icon": "node scripts/make-tray-icon.mjs",
     "electron": "node scripts/build-client.mjs && electron electron/main.cjs",
+    "test:phase2": "node scripts/test-phase2.mjs",
     "test:electron-window": "node scripts/test-electron-window-logic.mjs",
     "e2e:electron": "node scripts/e2e-electron.mjs",
     "pack": "electron-builder",

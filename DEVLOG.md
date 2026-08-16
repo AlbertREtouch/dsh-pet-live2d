@@ -763,3 +763,94 @@ Electron 独立宠物壳（紧凑窗口）已经实现，自动化测试全绿�
 - [x] 用户使用 12:38 后的新构建复验同一真实操作，确认中部抓取快速甩到右/下边缘、立即反向时始终跟手，问题已修复。
 - [x] 用户批准标记 Phase 1 完成并同步 `PROJECT.md`。
 - [x] 用户批准用 Sapling 创建收尾提交并执行 `sl pr submit --stack`。
+
+---
+
+## [2026-08-15 13:47] Phase 2 实施完成（代码层）：DSH 生命周期 + pending 快捷交互 — 已同步
+
+> 按 `PROJECT.md` 的 Phase 2 目标实现。`PROJECT.md` 本轮未修改，等待用户真实环境验收并明确批准后再同步。
+
+### 已实现
+
+- Electron 启动时探测默认 `127.0.0.1:3080`：复用已运行的 DSH；端口无人监听时以 detached + unref 方式启动 `dsh web --port <port>`；桌宠退出只停止自身监视器，不终止 DSH。
+- 端口已有其他 HTTP 服务、但 `/api/pets` 不可用时进入 `plugin-missing` 状态并禁止重复拉起，避免双启动；DSH 断开后后台重试，桌宠本身继续运行。
+- 新增 iframe embed 模式：`dsh-pet-embed=1` 时只安装状态/动作桥，不渲染第二只宠物；父子窗口消息固定协议版本，并同时校验 `origin`、`source`、channel，发送时使用精确 target origin，未使用 `*`。
+- `DshStateSource` 新增可选 `perform(action)`：审批只允许“本次允许”或“拒绝”；普通单选问题可直接点选；复杂问题引导打开 DSH。父页面状态摘要不暴露 `approvalId`，实际响应只从当前 live pending wait 读取。
+- 新增 pending 气泡与注意力节奏：审批显示 `✕/✓`，普通单选显示选项按钮；等待重复提醒并在超时后升级为系统通知；气泡交互不会触发宠物拖动或右键菜单。
+- 桌面壳增加 DSH 状态 IPC、打开 DSH、原生通知与托盘入口；壳页面改由随机 loopback HTTP origin 提供，为严格 `postMessage` origin 校验提供基础。
+- 新增可配置项：`DSH_PET_DSH_PORT`、`DSH_PET_DSH_COMMAND`、`DSH_PET_DSH_ARGS`、`DSH_PET_DSH_AUTOSTART`。
+
+### 自动化与视觉验证
+
+- ✅ `npm run test:phase2`：pending 摘要与响应编码、并发去重、普通单选/复杂问题限制、严格 postMessage 校验、DSH 复用/启动/断线与 Windows `.cmd` 包装。
+- ✅ `smoke-client`、`smoke-standalone`、`test-host-logic`、`test-pet-server`、`test-electron-window-logic`。
+- ✅ Electron dev e2e：DSH 连接、pending 审批气泡可见、sprite 加载、真实尺寸定位、拖动、边缘跟随、点击状态清理和透明角穿透全部 PASS。e2e 只观察 pending，绝不自动批准或拒绝。
+- ✅ 截图人工检查：pending 气泡未裁切，`✕/✓` 按钮完整，宠物位于气泡下方。
+- ✅ 重新构建 `lib/client.js` / `lib/standalone.js` 及 sourcemap；`npm pack --dry-run`、`npm run pack:dir`、`npm run pack` 全部 PASS。
+- ✅ 重新生成 `dist/DSH Pet-0.1.0-portable.exe`、`dist/DSH Pet Setup 0.1.0.exe` 与 `dist/win-unpacked`；打包版 Electron e2e 全部 PASS。
+
+### 用户验收与同步
+
+- 自动化使用无副作用的本地 DSH fixture，没有替用户操作真实审批，也没有为测试启动一个会常驻的真实 DSH 进程。
+- [x] 用户重启现有 DSH，使本地插件 ESM 缓存刷新，并在真实环境验收 Phase 2 状态读取与交互链路。
+- [x] 用户确认 Phase 2 无问题，并批准同步 `PROJECT.md`。
+- [x] 本条 Phase 2 结果已同步到 `PROJECT.md`。
+
+---
+
+## [2026-08-15 14:50] Phase 2 状态读取修复：桌面聚合全部 session — 已同步
+
+### 已确认根因
+
+- 桌面壳通过独立隐藏 iframe 运行 DSH 插件，但旧适配器只读取并订阅该 iframe 自己的 `sessions.list.current`。
+- DSH 的 current selection 只在 iframe 启动时从 `dsh.sessions.current` 持久化值恢复；可见 DSH 页面切换 session 不会把自己的运行时 selection 同步给隐藏 iframe。
+- 因此 current 为空闲/未选择时，其他 session 即使 running 或 pending，桌宠仍收到合法的 `idle` snapshot；这不是 3080、`/api/pets` 或 postMessage 断线问题。
+
+### 修复
+
+- `createDshStateSource` 新增 `watch: "current" | "all"`：DSH 页面内宠物继续跟随 current；仅桌面 embed 使用 `all`。
+- `all` 模式以 `sessions.list.byId` 的 `running` / `pendingInteraction` 为全局信号，只实例化并订阅有活动的 session；全部空闲时才回退 current。不会调用 `sessions.open()`、不会改变前台选择，也不会加载所有历史空闲会话。
+- 多 session 状态聚合优先显示 pending；合并最多 8 个 live wait，并为每项附加 `sessionId` / `sessionTitle`。气泡显示所属 session，多个 pending 时提示剩余数量。
+- pending 动作通过 `sessionId + key` 精确路由；相同 key 出现在多个 session 时拒绝模糊操作。严格 postMessage 动作白名单新增可选 `sessionId`，origin/source/version 校验保持不变。
+- addressed current subagent 若不在普通 `ids` 中但处于 running/pending，也会加入桌面观察集合。
+
+### 验证
+
+- ✅ `test:phase2` 新增：current 空闲但后台 running、两个 session 同时 pending、同 key 跨 session 消歧、精确审批响应、全部空闲后回退 current。
+- ✅ 重建后的 `smoke-client` 明确验证 embed 成品输出后台 session 的 `running + sessionTitle`；`smoke-standalone`、host/pet-server/window 回归全 PASS。
+- ✅ Electron dev 与重新打包后的 `win-unpacked/DSH Pet.exe` e2e：`pendingApprovalVisible=true`、`pendingSessionTitleVisible=true`，并且真实尺寸定位、拖动、边缘跟随、点击清理、透明角穿透全 PASS；测试未点击审批。
+- ✅ 重新生成 portable、NSIS 与 win-unpacked 产物。
+
+### 用户验收与同步
+
+- [x] 用户在真实环境确认桌宠可以读取正在运行的 session。
+- [x] 最终状态细分问题由 01:14 条目的惰性事件窗口修复解决。
+- [x] 本条结果已与 13:47、01:14 Phase 2 条目一起同步到 `PROJECT.md`。
+
+---
+
+## [2026-08-16 01:14 -07:00] Phase 2 状态细分修复：活跃后台 session 按需加载事件窗口 — 已同步
+
+### 已确认根因
+
+- 全 session 聚合已经能从 `sessions.list.byId` 识别后台会话的 `running`，但 `sessions.binding(id)` 是惰性的，并不会自动加载该 session 的事件窗口。
+- 未打开的 binding 通常只有列表级 `running` 信号，`partial` 与 `runningCalls` 仍为空；旧映射把“running 且没有 partial/tool”解释为 `waiting`，所以真实工具调用、生成过程等状态都被显示成“等你”。
+- 旧测试直接在 mock 中预填了 `runningCalls`，没有覆盖真实的惰性加载路径，因此未能发现该问题。
+
+### 修复
+
+- `watch: "all"` 只对确实处于 `running` 或 `pendingInteraction` 的 session 调用其 binding 上幂等的 `session.open()`，加载事件窗口；不会调用全局 `sessions.open(id)`，因此不会切换 DSH 前台当前 session。
+- 对同一 session 的并发 open 请求去重，并在 source dispose 时清理跟踪；open 失败时保持列表级状态，不让状态桥中断。
+- 活跃 binding 尚未完成 hydration 时先显示粗粒度 `running`，避免误报“等你”；完成后仍由详细快照决定：工具调用为 `running`、partial 为 `review`，只有已打开且确实无 partial/tool 的运行中会话才显示 `waiting`。
+
+### 验证
+
+- ✅ `test:phase2` 新增惰性后台 session：断言 `session.open()` 只调用一次、全局 `sessions.open()` 从不调用，并依次覆盖 hydration 前 `running`、工具调用 `running`、partial `review`、真实无输出 `waiting`。
+- ✅ 重建 `lib/client.js`；`smoke-client` 以惰性 session 验证成品 bundle 会主动 hydration 并输出工具名；standalone、host、pet-server、Electron window 回归均通过。
+- ✅ Electron dev 与重建后的 `dist/win-unpacked/DSH Pet.exe` e2e 全部通过：DSH 连接、pending/session 标题、渲染、定位、拖拽、边缘跟随、点击清理与透明区域穿透均正常。
+- ✅ 重新生成 portable、NSIS installer 与 `win-unpacked` 产物。
+
+### 用户验收与同步
+
+- [x] 用户在真实环境复验新构建，确认状态读取与显示已无问题。
+- [x] 用户批准将本条及此前 Phase 2 记录同步到 `PROJECT.md`。
